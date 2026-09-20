@@ -1858,6 +1858,15 @@ local options = {
 		def = false,
 	},
 
+	{
+		key = "disable_legion",
+		name = "Disable Legion",
+		desc = "Newest Faction, filled with creativity and beautiful models.",
+		type = "bool",
+		section = "options_experimental",
+		def = false,
+	},
+
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
 		key = "proposed_unit_reworks",
