@@ -1089,24 +1089,6 @@ local options = {
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-	{
-		key = "disable_armada",
-		name = "Disable Armada",
-		desc = "Legacy Faction, not up to Legion standard.",
-		type = "bool",
-		section = "options_main",
-		def = false,
-	},
-
-	{
-		key = "disable_cortex",
-		name = "Disable Cortex",
-		desc = "Legacy Faction, not up to Legion standard.",
-		type = "bool",
-		section = "options_main",
-		def = false,
-	},
-
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
 		key = "options_extra",
@@ -1824,6 +1806,7 @@ local options = {
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
 		key = "options_experimental",
@@ -1855,6 +1838,24 @@ local options = {
 		key = "sub_header",
 		section = "options_experimental",
 		type = "separator",
+	},
+	
+	{
+		key = "disable_armada",
+		name = "Disable Armada",
+		desc = "Legacy Faction, not up to Legion standard.",
+		type = "bool",
+		section = "options_experimental",
+		def = false,
+	},
+
+	{
+		key = "disable_cortex",
+		name = "Disable Cortex",
+		desc = "Legacy Faction, not up to Legion standard.",
+		type = "bool",
+		section = "options_experimental",
+		def = false,
 	},
 
 	-- NOTE: update language/en/interface.json when you change name or desc
