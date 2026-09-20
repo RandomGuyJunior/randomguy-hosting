@@ -446,6 +446,24 @@ local options = {
 		type = "subheader",
 		def = true,
 	},
+	
+	{
+		key = "disable_armada",
+		name = "Disable Armada",
+		desc = "Legacy Faction, not up to Legion standard.",
+		type = "bool",
+		section = "options_main",
+		def = false,
+	},
+
+	{
+		key = "disable_cortex",
+		name = "Disable Cortex",
+		desc = "Legacy Faction, not up to Legion standard.",
+		type = "bool",
+		section = "options_main",
+		def = false,
+	},
 
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
@@ -1846,16 +1864,6 @@ local options = {
 		desc = "Placeholder for official balance testing mod option",
 		type = "bool",
 		hidden = true,
-		section = "options_experimental",
-		def = false,
-	},
-
-	-- NOTE: update language/en/interface.json when you change name or desc
-	{
-		key = "experimentallegionfaction",
-		name = "Legion Faction",
-		desc = "3rd experimental faction",
-		type = "bool",
 		section = "options_experimental",
 		def = false,
 	},
