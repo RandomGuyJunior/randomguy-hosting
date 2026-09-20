@@ -93,11 +93,26 @@ if gadgetHandler:IsSyncedCode() then
 		local modoptions = Spring.GetModOptions()
 		local disableArmada = modoptions.disable_armada
 		local disableCortex = modoptions.disable_cortex
+		local disableLegion = modoptions.disable_legion
 		local factionlimiter = tonumber(modoptions.factionlimiter) or 0
 		if factionlimiter > 0 then
-			local legcomDefID = UnitDefNames.legcom and UnitDefNames.legcom.id
+			local legcomDefID = not disableLegion and UnitDefNames.legcom and UnitDefNames.legcom.id
 			local armcomDefID = not disableArmada and UnitDefNames.armcom and UnitDefNames.armcom.id
 			local corcomDefID = not disableCortex and UnitDefNames.corcom and UnitDefNames.corcom.id
+			-- Safeguard against disabling every faction.
+			-- Fall back to Armada, then Cortex, then Legion if available.
+			if not armcomDefID and not corcomDefID and not legcomDefID then
+				Spring.Log(
+					gadget:GetInfo().name,
+					LOG.WARNING,
+					"All factions were disabled. Falling back to an available commander."
+				)
+			
+				armcomDefID = UnitDefNames.armcom and UnitDefNames.armcom.id
+				corcomDefID = UnitDefNames.corcom and UnitDefNames.corcom.id
+				legcomDefID = UnitDefNames.legcom and UnitDefNames.legcom.id
+			end
+			
 			local ARM_MASK = 2 ^ 0
 			local COR_MASK = 2 ^ 1
 			local LEG_MASK = 2 ^ 2
@@ -127,11 +142,16 @@ if gadgetHandler:IsSyncedCode() then
 					unitsCount = unitsCount + 1
 				end
 
-				-- A faction limiter may point only at a globally disabled faction.
-				-- Legion is always available, so use it as the fallback.
-				if unitsCount == 1 and legcomDefID then
+				if unitsCount == 1 then
+				if armcomDefID then
+					allyStartUnits[1] = armcomDefID
+				elseif corcomDefID then
+					allyStartUnits[1] = corcomDefID
+				elseif legcomDefID then
 					allyStartUnits[1] = legcomDefID
-					unitsCount = 2
+				end
+			
+				unitsCount = 2
 				end
 
 				local packedOptions = allyStartUnits[1]
@@ -178,7 +198,7 @@ if gadgetHandler:IsSyncedCode() then
 				validStartUnits[#validStartUnits + 1] = corcomDefID
 			end
 
-			local legcomDefID = UnitDefNames.legcom and UnitDefNames.legcom.id
+			local legcomDefID = not disableLegion and UnitDefNames.legcom and UnitDefNames.legcom.id
 			if legcomDefID then
 				validStartUnits[#validStartUnits + 1] = legcomDefID
 			end
