@@ -1132,6 +1132,70 @@ local options = {
 		section = "options_extra",
 		def = false,
 	},
+	
+	{
+		key = "team1_options",
+		name = "Team 1 Options",
+		desc = "Modoptions or tweaks applied only to Team 1",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team2_options",
+		name = "Team 2 Options",
+		desc = "Modoptions or tweaks applied only to Team 2",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team3_options",
+		name = "Team 3 Options",
+		desc = "Modoptions or tweaks applied only to Team 3",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team4_options",
+		name = "Team 4 Options",
+		desc = "Modoptions or tweaks applied only to Team 4",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team5_options",
+		name = "Team 5 Options",
+		desc = "Modoptions or tweaks applied only to Team 5",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team6_options",
+		name = "Team 6 Options",
+		desc = "Modoptions or tweaks applied only to Team 6",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team7_options",
+		name = "Team 7 Options",
+		desc = "Modoptions or tweaks applied only to Team 7",
+		type = "string",
+		def = "",
+	},
+
+	{
+		key = "team8_options",
+		name = "Team 8 Options",
+		desc = "Modoptions or tweaks applied only to Team 8",
+		type = "string",
+		def = "",
+	},
 
 	{
 		key = "sub_header",
