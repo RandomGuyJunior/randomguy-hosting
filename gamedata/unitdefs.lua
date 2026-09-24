@@ -16,6 +16,7 @@ local shared = {} -- shared amongst the lua unitdef environments
 
 local preProcFile = "gamedata/unitdefs_pre.lua"
 local postProcFile = "gamedata/unitdefs_post.lua"
+local teamPostProcFile = "gamedata/teamdefs_post.lua"
 
 local system = VFS.Include("gamedata/system.lua")
 
@@ -114,6 +115,18 @@ if VFS.FileExists(postProcFile) then
 	Shared = shared -- make it global
 	UnitDefs = unitDefs -- make it global
 	VFS.Include(postProcFile)
+	UnitDefs = nil
+	Shared = nil
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Team Specific units
+
+if VFS.FileExists(teamPostProcFile) then
+	Shared = shared
+	UnitDefs = unitDefs
+	VFS.Include(teamPostProcFile)
 	UnitDefs = nil
 	Shared = nil
 end
