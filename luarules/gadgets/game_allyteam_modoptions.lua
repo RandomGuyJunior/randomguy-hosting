@@ -25,6 +25,12 @@ local spGetGaiaTeamID = Spring.GetGaiaTeamID
 local spGetTeamInfo = Spring.GetTeamInfo
 local spGetAllyTeamList = Spring.GetAllyTeamList
 local spGetTeamList = Spring.GetTeamList
+local spSetUnitRulesParam = Spring.SetUnitRulesParam
+local spSetUnitBuildParams = Spring.SetUnitBuildParams
+local spSetUnitMetalExtraction = Spring.SetUnitMetalExtraction
+local spSetUnitResourcing = Spring.SetUnitResourcing
+local spSetUnitStorage = Spring.SetUnitStorage
+local spSetUnitSensorRadius = Spring.SetUnitSensorRadius
 
 --------------------------------------------------------------------------------
 -- Team mapping
@@ -53,6 +59,23 @@ local teamExperimentalFeatureActive = false
 
 local teamScavEnabled = {}
 local teamExperimentalEnabled = {}
+
+-- Numeric BAR cheat/modoption multipliers that can be applied per unit at runtime.
+-- Each option independently defers to BAR's normal global implementation whenever
+-- the corresponding global modoption differs from its default value (1).
+local numericOptionKeys = {
+	"multiplier_buildpower",
+	"multiplier_builddistance",
+	"multiplier_resourceincome",
+	"multiplier_metalextraction",
+	"multiplier_energyproduction",
+	"multiplier_losrange",
+	"multiplier_radarrange",
+}
+
+local globalNumericOverride = {}
+local teamNumericValues = {}
+local teamNumericFeatureActive = false
 
 --------------------------------------------------------------------------------
 -- Build option definitions
@@ -382,6 +405,20 @@ local function IsEnabled(value)
 		or value == "enabled"
 end
 
+local function NumericValue(value, fallback)
+	local numberValue = tonumber(value)
+
+	if numberValue ~= nil then
+		return numberValue
+	end
+
+	return fallback
+end
+
+local function NumericDiffersFromDefault(value)
+	return math.abs(NumericValue(value, 1) - 1) > 0.000001
+end
+
 --------------------------------------------------------------------------------
 -- Mapping
 --------------------------------------------------------------------------------
@@ -626,6 +663,37 @@ local function InitializeFeatureState()
 		end
 	end
 
+	for i = 1, #numericOptionKeys do
+		local key = numericOptionKeys[i]
+		globalNumericOverride[key] =
+			NumericDiffersFromDefault(modOptions[key])
+	end
+
+	for slot = 1, 8 do
+		teamNumericValues[slot] = {}
+
+		local options = teamOptions[slot] or {}
+
+		for i = 1, #numericOptionKeys do
+			local key = numericOptionKeys[i]
+			local value = NumericValue(options[key], 1)
+
+			if globalNumericOverride[key] then
+				-- BAR already changed the UnitDefs globally. Do not add a
+				-- second team-specific multiplier for this same feature.
+				value = 1
+			elseif NumericDiffersFromDefault(value) then
+				teamNumericFeatureActive = true
+			end
+
+			teamNumericValues[slot][key] = value
+		end
+	end
+
+	if teamNumericFeatureActive then
+		Echo("Team-specific numeric multipliers active")
+	end
+
 	if globalScavUnits then
 		Echo(
 			"Global scavunitsforplayers is enabled; "
@@ -799,6 +867,183 @@ local function ApplyTeamFeaturesToUnit(
 end
 
 --------------------------------------------------------------------------------
+-- Runtime numeric multiplier application
+--------------------------------------------------------------------------------
+
+local function GetTeamNumericMultiplier(slot, key)
+	local slotValues = teamNumericValues[slot]
+
+	if not slotValues then
+		return 1
+	end
+
+	return slotValues[key] or 1
+end
+
+local function SetBuildPowerMultiplier(unitID, multiplier)
+	-- unit_attributes.lua owns final build/repair/reclaim speed calculation.
+	-- Using its public rules-param hook means slows, stuns and other BAR
+	-- attribute modifiers continue to compose correctly with this multiplier.
+	spSetUnitRulesParam(unitID, "buildpower_mult", multiplier)
+
+	if GG.UpdateUnitAttributes then
+		GG.UpdateUnitAttributes(unitID)
+	end
+end
+
+local function ApplyNumericFeaturesToUnit(unitID, unitDefID, teamID)
+	if not teamNumericFeatureActive then
+		return
+	end
+
+	local slot = teamIDToTeamSlot[teamID]
+
+	if not slot then
+		return
+	end
+
+	local unitDef = UnitDefs[unitDefID]
+
+	if not unitDef then
+		return
+	end
+
+	local buildPowerMult =
+		GetTeamNumericMultiplier(slot, "multiplier_buildpower")
+
+	if (unitDef.buildSpeed or 0) > 0 then
+		SetBuildPowerMultiplier(unitID, buildPowerMult)
+	end
+
+	local buildDistanceMult =
+		GetTeamNumericMultiplier(slot, "multiplier_builddistance")
+
+	if unitDef.buildDistance and unitDef.buildDistance > 0 then
+		spSetUnitBuildParams(
+			unitID,
+			"buildDistance",
+			unitDef.buildDistance * buildDistanceMult
+		)
+	end
+
+	local resourceMult =
+		GetTeamNumericMultiplier(slot, "multiplier_resourceincome")
+
+	local metalExtractionMult =
+		resourceMult
+			* GetTeamNumericMultiplier(
+				slot,
+				"multiplier_metalextraction"
+			)
+
+	local energyProductionMult =
+		resourceMult
+			* GetTeamNumericMultiplier(
+				slot,
+				"multiplier_energyproduction"
+			)
+
+	-- Metal extractors. UnitDefs already contain any active global
+	-- resource/extraction multipliers, so the value here is only the
+	-- remaining team-specific factor.
+	if (unitDef.extractsMetal or 0) > 0 then
+		spSetUnitMetalExtraction(
+			unitID,
+			unitDef.extractsMetal * metalExtractionMult
+		)
+
+		if (unitDef.metalStorage or 0) > 0 then
+			spSetUnitStorage(
+				unitID,
+				"m",
+				unitDef.metalStorage * metalExtractionMult
+			)
+		end
+	end
+
+	-- Static unconditional production.
+	if (unitDef.metalMake or 0) ~= 0 then
+		spSetUnitResourcing(
+			unitID,
+			"umm",
+			unitDef.metalMake * resourceMult
+		)
+	end
+
+	if (unitDef.energyMake or 0) ~= 0 then
+		spSetUnitResourcing(
+			unitID,
+			"ume",
+			unitDef.energyMake * energyProductionMult
+		)
+
+		if (unitDef.energyStorage or 0) > 0 then
+			spSetUnitStorage(
+				unitID,
+				"e",
+				unitDef.energyStorage * energyProductionMult
+			)
+		end
+	end
+
+	-- BAR treats negative energy upkeep as energy production when the
+	-- unit is enabled, so reproduce that definition multiplier too.
+	if (unitDef.energyUpkeep or 0) < 0 then
+		spSetUnitResourcing(
+			unitID,
+			"uue",
+			unitDef.energyUpkeep * energyProductionMult
+		)
+
+		if (unitDef.energyStorage or 0) > 0 then
+			spSetUnitStorage(
+				unitID,
+				"e",
+				unitDef.energyStorage * energyProductionMult
+			)
+		end
+	end
+
+	local losMult =
+		GetTeamNumericMultiplier(slot, "multiplier_losrange")
+
+	if (unitDef.losRadius or 0) > 0 then
+		spSetUnitSensorRadius(
+			unitID,
+			"los",
+			math.floor(unitDef.losRadius * losMult + 0.5)
+		)
+	end
+
+	if (unitDef.airLosRadius or 0) > 0 then
+		spSetUnitSensorRadius(
+			unitID,
+			"airLos",
+			math.floor(unitDef.airLosRadius * losMult + 0.5)
+		)
+	end
+
+	local radarMult =
+		GetTeamNumericMultiplier(slot, "multiplier_radarrange")
+
+	if (unitDef.radarDistance or 0) > 0 then
+		spSetUnitSensorRadius(
+			unitID,
+			"radar",
+			math.floor(unitDef.radarDistance * radarMult + 0.5)
+		)
+	end
+
+	if (unitDef.sonarDistance or 0) > 0 then
+		spSetUnitSensorRadius(
+			unitID,
+			"sonar",
+			math.floor(unitDef.sonarDistance * radarMult + 0.5)
+		)
+	end
+end
+
+--------------------------------------------------------------------------------
 -- Gadget lifecycle
 --------------------------------------------------------------------------------
 
@@ -849,11 +1094,18 @@ function gadget:UnitCreated(
 	if
 		not teamScavFeatureActive
 		and not teamExperimentalFeatureActive
+		and not teamNumericFeatureActive
 	then
 		return
 	end
 
 	ApplyTeamFeaturesToUnit(
+		unitID,
+		unitDefID,
+		unitTeam
+	)
+
+	ApplyNumericFeaturesToUnit(
 		unitID,
 		unitDefID,
 		unitTeam
@@ -869,11 +1121,18 @@ function gadget:UnitGiven(
 	if
 		not teamScavFeatureActive
 		and not teamExperimentalFeatureActive
+		and not teamNumericFeatureActive
 	then
 		return
 	end
 
 	ApplyTeamFeaturesToUnit(
+		unitID,
+		unitDefID,
+		newTeam
+	)
+
+	ApplyNumericFeaturesToUnit(
 		unitID,
 		unitDefID,
 		newTeam
@@ -889,11 +1148,18 @@ function gadget:UnitTaken(
 	if
 		not teamScavFeatureActive
 		and not teamExperimentalFeatureActive
+		and not teamNumericFeatureActive
 	then
 		return
 	end
 
 	ApplyTeamFeaturesToUnit(
+		unitID,
+		unitDefID,
+		newTeam
+	)
+
+	ApplyNumericFeaturesToUnit(
 		unitID,
 		unitDefID,
 		newTeam
