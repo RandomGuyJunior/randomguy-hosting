@@ -16,7 +16,8 @@ if not gadgetHandler:IsSyncedCode() then
 	return
 end
 
-local spGetModOptions = Spring.GetModOptions
+local teamConfig = VFS.Include("gamedata/team_options.lua")
+
 local spGetGaiaTeamID = Spring.GetGaiaTeamID
 local spGetTeamInfo = Spring.GetTeamInfo
 local spGetAllyTeamList = Spring.GetAllyTeamList
@@ -27,7 +28,7 @@ local teamSlotToAllyTeam = {}
 local allyTeamToTeamSlot = {}
 local teamIDToTeamSlot = {}
 
-local teamOptions = {}
+local teamOptions = teamConfig.Options
 
 local function Echo(...)
 	Spring.Echo("[Team Options]", ...)
@@ -74,66 +75,6 @@ local function BuildTeamMapping()
 	end
 end
 
-local function ParseValue(value)
-	if value == "true" then
-		return true
-	end
-
-	if value == "false" then
-		return false
-	end
-
-	local numberValue = tonumber(value)
-
-	if numberValue ~= nil then
-		return numberValue
-	end
-
-	return value
-end
-
-local function ParseOptionString(input)
-	local result = {}
-
-	if not input or input == "" then
-		return result
-	end
-
-	for line in string.gmatch(input, "[^\r\n]+") do
-		local key, value = string.match(line, "^%s*([^=]+)%s*=%s*(.-)%s*$")
-
-		if key and value and key ~= "" then
-			result[key] = ParseValue(value)
-		else
-			Echo("Ignoring invalid option:", line)
-		end
-	end
-
-	return result
-end
-
-local function LoadTeamOptions()
-	local modOptions = spGetModOptions()
-
-	for slot = 1, 8 do
-		local key = "team" .. slot .. "_options"
-		local value = modOptions[key]
-
-		if value and value ~= "" then
-			teamOptions[slot] = ParseOptionString(value)
-
-			Echo(
-				"Loaded Team",
-				slot,
-				"options:",
-				value
-			)
-		else
-			teamOptions[slot] = {}
-		end
-	end
-end
-
 local function GetTeamSlotFromTeamID(teamID)
 	return teamIDToTeamSlot[teamID]
 end
@@ -143,17 +84,7 @@ local function GetTeamSlotFromAllyTeamID(allyTeamID)
 end
 
 local function GetOptionBySlot(slot, key, fallback)
-	local options = teamOptions[slot]
-
-	if options then
-		local value = options[key]
-
-		if value ~= nil then
-			return value
-		end
-	end
-
-	return fallback
+	return teamConfig.GetOption(slot, key, fallback)
 end
 
 local function GetOptionByTeamID(teamID, key, fallback)
@@ -178,7 +109,6 @@ end
 
 function gadget:Initialize()
 	BuildTeamMapping()
-	LoadTeamOptions()
 
 	GG.TeamOptions = {
 		GetOptionBySlot = GetOptionBySlot,
@@ -187,6 +117,9 @@ function gadget:Initialize()
 
 		GetTeamSlotFromTeamID = GetTeamSlotFromTeamID,
 		GetTeamSlotFromAllyTeamID = GetTeamSlotFromAllyTeamID,
+
+		TeamFeatureActive = teamConfig.TeamFeatureActive,
+		TeamHasFeature = teamConfig.TeamHasFeature,
 
 		teamSlotToAllyTeam = teamSlotToAllyTeam,
 		allyTeamToTeamSlot = allyTeamToTeamSlot,
