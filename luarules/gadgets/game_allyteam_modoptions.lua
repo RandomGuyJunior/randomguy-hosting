@@ -31,6 +31,9 @@ local spSetUnitMetalExtraction = Spring.SetUnitMetalExtraction
 local spSetUnitResourcing = Spring.SetUnitResourcing
 local spSetUnitStorage = Spring.SetUnitStorage
 local spSetUnitSensorRadius = Spring.SetUnitSensorRadius
+local spSetUnitWeaponState = Spring.SetUnitWeaponState
+local spSetUnitWeaponDamages = Spring.SetUnitWeaponDamages
+local spSetUnitMaxRange = Spring.SetUnitMaxRange
 
 --------------------------------------------------------------------------------
 -- Team mapping
@@ -68,9 +71,15 @@ local numericOptionKeys = {
 	"multiplier_builddistance",
 	"multiplier_resourceincome",
 	"multiplier_metalextraction",
+	"multiplier_energyconversion",
 	"multiplier_energyproduction",
+	"multiplier_maxvelocity",
+	"multiplier_turnrate",
 	"multiplier_losrange",
 	"multiplier_radarrange",
+	"multiplier_weaponrange",
+	"multiplier_weapondamage",
+	"multiplier_shieldpower",
 }
 
 local globalNumericOverride = {}
@@ -891,6 +900,136 @@ local function SetBuildPowerMultiplier(unitID, multiplier)
 	end
 end
 
+local function ApplyMovementMultipliers(unitID, slot)
+	local moveMult =
+		GetTeamNumericMultiplier(slot, "multiplier_maxvelocity")
+	local turnMult =
+		GetTeamNumericMultiplier(slot, "multiplier_turnrate")
+
+	if moveMult == 1 and turnMult == 1 then
+		return
+	end
+
+	-- BAR's generic attribute system composes these with slows/stuns/upgrades.
+	GG.att_genericUsed = true
+	GG.att_moveMult[unitID] = moveMult
+	GG.att_turnMult[unitID] = turnMult
+
+	-- Global multiplier_maxvelocity changes acceleration/deceleration less
+	-- aggressively than max speed: ((x - 1) / 2 + 1).
+	local accelTarget = ((moveMult - 1) / 2) + 1
+	GG.att_accelMult[unitID] =
+		moveMult ~= 0 and (accelTarget / moveMult) or 1
+
+	-- Keep required generic slots populated.
+	GG.att_reloadMult[unitID] = GG.att_reloadMult[unitID] or 1
+	GG.att_econMult[unitID] = GG.att_econMult[unitID] or 1
+	GG.att_buildMult[unitID] = GG.att_buildMult[unitID] or 1
+
+	if GG.UpdateUnitAttributes then
+		GG.UpdateUnitAttributes(unitID)
+	end
+end
+
+local function ApplyWeaponMultipliers(unitID, unitDef, slot)
+	local rangeMult =
+		GetTeamNumericMultiplier(slot, "multiplier_weaponrange")
+	local damageMult =
+		GetTeamNumericMultiplier(slot, "multiplier_weapondamage")
+
+	if rangeMult == 1 and damageMult == 1 then
+		return
+	end
+
+	local maxRange = 0
+	local weapons = unitDef.weapons
+
+	if not weapons then
+		return
+	end
+
+	for weaponNum = 1, #weapons do
+		local weaponDefID = weapons[weaponNum].weaponDef
+		local weaponDef = WeaponDefs[weaponDefID]
+
+		if weaponDef then
+			if rangeMult ~= 1 then
+				local range = (weaponDef.range or 0) * rangeMult
+				spSetUnitWeaponState(unitID, weaponNum, "range", range)
+
+				-- Reproduce the important runtime parts of BAR's global
+				-- range multiplier. Recoil exposes both TTL and projectile
+				-- speed as per-unit weapon state.
+				if weaponDef.flightTime then
+					spSetUnitWeaponState(
+						unitID,
+						weaponNum,
+						"ttl",
+						weaponDef.flightTime * (rangeMult * 1.5)
+					)
+				end
+
+				if
+					weaponDef.type == "Cannon"
+					and weaponDef.gravityAffected
+					and weaponDef.projectilespeed
+				then
+					spSetUnitWeaponState(
+						unitID,
+						weaponNum,
+						"projectileSpeed",
+						weaponDef.projectilespeed * math.sqrt(rangeMult)
+					)
+				end
+
+				if range > maxRange then
+					maxRange = range
+				end
+			end
+
+			if damageMult ~= 1 and weaponDef.damages then
+				local damages = {}
+				for armorType, value in pairs(weaponDef.damages) do
+					if type(value) == "number" then
+						damages[armorType] = value * damageMult
+					end
+				end
+				spSetUnitWeaponDamages(unitID, weaponNum, damages)
+			end
+		end
+	end
+
+	if rangeMult ~= 1 and maxRange > 0 then
+		spSetUnitMaxRange(unitID, maxRange)
+	end
+
+	-- BAR's global damage multiplier also affects unit death/self-destruct
+	-- explosions. Recoil exposes the same per-unit damage override.
+	if damageMult ~= 1 then
+		local deathWeapon = unitDef.deathExplosion
+		if deathWeapon and WeaponDefs[deathWeapon] and WeaponDefs[deathWeapon].damages then
+			local damages = {}
+			for armorType, value in pairs(WeaponDefs[deathWeapon].damages) do
+				if type(value) == "number" then
+					damages[armorType] = value * damageMult
+				end
+			end
+			spSetUnitWeaponDamages(unitID, "explode", damages)
+		end
+
+		local selfDWeapon = unitDef.selfDExplosion
+		if selfDWeapon and WeaponDefs[selfDWeapon] and WeaponDefs[selfDWeapon].damages then
+			local damages = {}
+			for armorType, value in pairs(WeaponDefs[selfDWeapon].damages) do
+				if type(value) == "number" then
+					damages[armorType] = value * damageMult
+				end
+			end
+			spSetUnitWeaponDamages(unitID, "selfDestruct", damages)
+		end
+	end
+end
+
 local function ApplyNumericFeaturesToUnit(unitID, unitDefID, teamID)
 	if not teamNumericFeatureActive then
 		return
@@ -907,6 +1046,9 @@ local function ApplyNumericFeaturesToUnit(unitID, unitDefID, teamID)
 	if not unitDef then
 		return
 	end
+
+	ApplyMovementMultipliers(unitID, slot)
+	ApplyWeaponMultipliers(unitID, unitDef, slot)
 
 	local buildPowerMult =
 		GetTeamNumericMultiplier(slot, "multiplier_buildpower")
@@ -1004,6 +1146,42 @@ local function ApplyNumericFeaturesToUnit(unitID, unitDefID, teamID)
 		end
 	end
 
+	local conversionMult =
+		resourceMult
+			* GetTeamNumericMultiplier(
+				slot,
+				"multiplier_energyconversion"
+			)
+
+	if
+		unitDef.customParams
+		and unitDef.customParams.energyconv_capacity
+		and unitDef.customParams.energyconv_efficiency
+	then
+		if (unitDef.metalStorage or 0) > 0 then
+			spSetUnitStorage(
+				unitID,
+				"m",
+				unitDef.metalStorage * conversionMult
+			)
+		end
+
+		if (unitDef.energyStorage or 0) > 0 then
+			spSetUnitStorage(
+				unitID,
+				"e",
+				unitDef.energyStorage * conversionMult
+			)
+		end
+	end
+
+	-- Expose the shield multiplier for the shield-specific runtime gadget.
+	spSetUnitRulesParam(
+		unitID,
+		"team_multiplier_shieldpower",
+		GetTeamNumericMultiplier(slot, "multiplier_shieldpower")
+	)
+
 	local losMult =
 		GetTeamNumericMultiplier(slot, "multiplier_losrange")
 
@@ -1068,6 +1246,18 @@ function gadget:Initialize()
 
 		GetTeamSlotFromAllyTeamID =
 			GetTeamSlotFromAllyTeamID,
+
+		GetEffectiveNumericBySlot =
+			GetTeamNumericMultiplier,
+
+		GetEffectiveNumericByTeamID =
+			function(teamID, key)
+				local slot = teamIDToTeamSlot[teamID]
+				if not slot then
+					return 1
+				end
+				return GetTeamNumericMultiplier(slot, key)
+			end,
 
 		teamSlotToAllyTeam =
 			teamSlotToAllyTeam,
