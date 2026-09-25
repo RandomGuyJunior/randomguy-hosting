@@ -1125,6 +1125,16 @@ local options = {
 
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
+		key = "afus_supremacy",
+		name = "AFUS Supremacy",
+		desc = "Advanced Fusion Reactors become single-use launchers and anti-nuke interceptors. They launch themselves with 10,000 range and 3,500 interception coverage, dealing an AFUS self-destruct explosion on impact. May the most AFUS win. Recommended: Resource Production x2.",
+		type = "bool",
+		section = "options_extra",
+		def = false,
+	},
+
+	-- NOTE: update language/en/interface.json when you change name or desc
+	{
 		key = "scavunitsforplayers",
 		name = "Scavengers Units Pack",
 		desc = "Units made for Scavengers, mostly silly and unbalanced for PvP.",
