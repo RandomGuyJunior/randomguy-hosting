@@ -403,6 +403,7 @@ local function calculateSpawnCount(unitDefID, config)
 end
 
 local function spawnZombies(featureID, unitDefID, healthReductionRatio, x, y, z, wasZombie, pastXp, zombieMode)
+	zombieMode = zombieMode or currentZombieMode
 	local config = zombieModeConfigs[zombieMode] or currentZombieConfig
 	local unitDef = unitDefs[unitDefID]
 	local spawnCount = 1 -- dead zombies never multiply, so they can't snowball
@@ -499,6 +500,7 @@ local function setZombie(unitID)
 	end
 
 	spring.SetUnitRulesParam(unitID, "zombie", 1)
+	zombieModesByUnit[unitID] = zombieModesByUnit[unitID] or currentZombieMode
 	initializeZombieAI(unitID, unitDefID)
 end
 
@@ -570,6 +572,11 @@ function gadget:GameFrame(frame)
 		for unitID, xpData in pairs(pendingUnitXp) do
 			if xpData.timeout < frame then
 				pendingUnitXp[unitID] = nil
+			end
+		end
+		for unitID, modeData in pairs(pendingCorpseModes) do
+			if modeData.timeout < frame then
+				pendingCorpseModes[unitID] = nil
 			end
 		end
 		for featureID, featureData in pairs(corpsesData) do
@@ -681,7 +688,8 @@ function gadget:FeatureCreated(featureID, allyTeam, sourceID)
 		pastXp = spring.GetFeatureRulesParam(featureID, "previous_xp") or 0
 	end
 	if sourceID then
-		zombieMode = pendingCorpseModes[sourceID]
+		local pendingMode = pendingCorpseModes[sourceID]
+		zombieMode = pendingMode and pendingMode.mode
 		pendingCorpseModes[sourceID] = nil
 	end
 	queueCorpseForSpawning(featureID, false, wasZombie, pastXp, zombieMode)
@@ -724,7 +732,10 @@ end
 function gadget:UnitDestroyed(unitID, unitDefID, unitTeam)
 	local zombieMode = zombieModesByUnit[unitID] or getZombieModeForTeam(unitTeam)
 	if zombieMode then
-		pendingCorpseModes[unitID] = zombieMode
+		pendingCorpseModes[unitID] = {
+			mode = zombieMode,
+			timeout = gameFrame + WAS_ZOMBIE_TIMEOUT_FRAMES,
+		}
 	end
 
 	if zombieHeapDefs[unitDefID] then
@@ -743,13 +754,15 @@ end
 
 function gadget:AllowUnitCaptureStep(builderID, builderTeam, unitID, unitDefID, part)
 	if isZombie(builderID) then
-		pendingZombieCaptures[unitID] = true
+		pendingZombieCaptures[unitID] =
+			zombieModesByUnit[builderID] or currentZombieMode
 	end
 	return true
 end
 
 function gadget:UnitGiven(unitID, unitDefID, newTeam, oldTeam)
 	if pendingZombieCaptures[unitID] then
+		local captureZombieMode = pendingZombieCaptures[unitID]
 		pendingZombieCaptures[unitID] = nil
 		if not isZombie(unitID) then
 			local unitX, unitY, unitZ = spGetUnitPosition(unitID)
@@ -761,7 +774,7 @@ function gadget:UnitGiven(unitID, unitDefID, newTeam, oldTeam)
 			end
 			spring.DestroyUnit(unitID, false, true)
 			if unitX then
-				spawnZombies(nil, unitDefID, healthReductionRatio, unitX, unitY, unitZ, false, pastXp)
+				spawnZombies(nil, unitDefID, healthReductionRatio, unitX, unitY, unitZ, false, pastXp, captureZombieMode)
 			end
 		end
 	end
