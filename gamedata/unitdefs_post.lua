@@ -2,6 +2,7 @@
 local system = VFS.Include("gamedata/system.lua")
 local alldefs = VFS.Include("gamedata/alldefs_post.lua")
 local savedefs = VFS.Include("gamedata/post_save_to_customparams.lua")
+local teamOptions = VFS.Include("gamedata/team_options.lua")
 
 local unitDef_Post = alldefs.UnitDef_Post
 local saveDefToCustomParams = savedefs.SaveDefToCustomParams
@@ -22,6 +23,7 @@ if
 	modOptions.ruins == "enabled"
 	or modOptions.forceallunits == true
 	or modOptions.zombies ~= "disabled"
+	or teamOptions.AnyTeamZombieEnabled()
 	or (GG and GG.Zombies and GG.Zombies.IdleMode == true)
 then
 	scavengersEnabled = true
