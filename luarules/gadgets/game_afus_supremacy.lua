@@ -17,7 +17,20 @@ if not gadgetHandler:IsSyncedCode() then
 end
 
 local modOptions = Spring.GetModOptions()
-if not modOptions.afus_supremacy then
+local teamOptions = VFS.Include("gamedata/team_options.lua")
+local globalEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
+local teamEnabled = {}
+for slot = 1, 8 do
+	teamEnabled[slot] = teamOptions.IsOptionEnabled(slot, "afus_supremacy")
+end
+local anyTeamEnabled = false
+for slot = 1, 8 do
+	if teamEnabled[slot] then
+		anyTeamEnabled = true
+		break
+	end
+end
+if not globalEnabled and not anyTeamEnabled then
 	return false
 end
 
@@ -56,6 +69,17 @@ local currentFrame = 0
 local spawnKind
 local spawnTargetProjectile
 
+local function teamHasMode(teamID)
+	if globalEnabled then
+		return true
+	end
+	if not GG.TeamOptions or not GG.TeamOptions.GetTeamSlotFromTeamID then
+		return false
+	end
+	local slot = GG.TeamOptions.GetTeamSlotFromTeamID(teamID)
+	return slot and teamEnabled[slot] == true or false
+end
+
 local launchCommand = {
 	id = CMD_AFUS_LAUNCH,
 	type = CMDTYPE.ICON_MAP,
@@ -70,7 +94,8 @@ local function isLiveAFUS(unitID)
 		return false
 	end
 	local unitDefID = spGetUnitDefID(unitID)
-	return unitDefID and afusUnitDefs[unitDefID] == true
+	local teamID = spGetUnitTeam(unitID)
+	return unitDefID and afusUnitDefs[unitDefID] == true and teamHasMode(teamID)
 end
 
 local function queueConsume(unitID)
@@ -169,6 +194,11 @@ local function spawnInterceptor(unitID, targetProjectileID)
 end
 
 local function findInterceptorFor(payloadID, payload)
+	local px, _, pz = spGetProjectilePosition(payloadID)
+	if not px then
+		return nil
+	end
+
 	local bestUnitID
 	local bestDistSq
 
@@ -178,8 +208,8 @@ local function findInterceptorFor(payloadID, payload)
 			if teamID and payload.teamID and not spAreTeamsAllied(teamID, payload.teamID) then
 				local ux, _, uz = spGetUnitPosition(unitID)
 				if ux then
-					local dx = ux - payload.targetX
-					local dz = uz - payload.targetZ
+					local dx = ux - px
+					local dz = uz - pz
 					local distSq = dx * dx + dz * dz
 					if distSq <= INTERCEPT_COVERAGE_SQ and (not bestDistSq or distSq < bestDistSq) then
 						bestDistSq = distSq
@@ -209,7 +239,7 @@ local function tryAssignInterceptor(payloadID, payload)
 end
 
 local function addLaunchCommand(unitID, unitDefID)
-	if not afusUnitDefs[unitDefID] then
+	if not afusUnitDefs[unitDefID] or not teamHasMode(spGetUnitTeam(unitID)) then
 		return
 	end
 	if not spFindUnitCmdDesc(unitID, CMD_AFUS_LAUNCH) then
@@ -221,7 +251,7 @@ function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams)
 	if cmdID ~= CMD_AFUS_LAUNCH then
 		return true
 	end
-	if not afusUnitDefs[unitDefID] or #cmdParams < 3 or pendingConsume[unitID] then
+	if not afusUnitDefs[unitDefID] or not teamHasMode(teamID) or #cmdParams < 3 or pendingConsume[unitID] then
 		return false
 	end
 
@@ -295,6 +325,17 @@ end
 
 function gadget:UnitCreated(unitID, unitDefID)
 	addLaunchCommand(unitID, unitDefID)
+end
+
+function gadget:UnitGiven(unitID, unitDefID)
+	local idx = spFindUnitCmdDesc(unitID, CMD_AFUS_LAUNCH)
+	if afusUnitDefs[unitDefID] and teamHasMode(spGetUnitTeam(unitID)) then
+		if not idx then
+			spInsertUnitCmdDesc(unitID, launchCommand)
+		end
+	elseif idx then
+		Spring.RemoveUnitCmdDesc(unitID, idx)
+	end
 end
 
 function gadget:UnitDestroyed(unitID)
