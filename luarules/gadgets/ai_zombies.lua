@@ -16,9 +16,10 @@ end
 
 local spring = Spring
 local modOptions = spring.GetModOptions()
+local teamOptions = VFS.Include("gamedata/team_options.lua")
 local modOptionEnabled = modOptions.zombies ~= "disabled"
 local isIdleMode = GG.Zombies and GG.Zombies.IdleMode == true or false
-local teamSpecificEnabled = GG.Zombies and GG.Zombies.TeamSpecific == true or false
+local teamSpecificEnabled = teamOptions.AnyTeamZombieEnabled() and not modOptionEnabled
 if not modOptionEnabled and not teamSpecificEnabled and not isIdleMode then
 	return false
 end
@@ -117,12 +118,10 @@ for _, teamID in ipairs(spring.GetTeamList()) do
 end
 
 local zombieFriendlyAllyTeams = {}
-if GG.Zombies and GG.Zombies.ZombieAllyTeamIDs then
-	for teamID in pairs(GG.Zombies.ZombieAllyTeamIDs) do
+for teamID in pairs(teamOptions.GetZombieAllyTeamIDs()) do
 		local _, _, isDead, _, _, allyTeamID = spring.GetTeamInfo(teamID)
-		if isDead == false and allyTeamID ~= nil then
-			zombieFriendlyAllyTeams[allyTeamID] = true
-		end
+	if isDead == false and allyTeamID ~= nil then
+		zombieFriendlyAllyTeams[allyTeamID] = true
 	end
 end
 
