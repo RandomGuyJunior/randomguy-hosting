@@ -136,16 +136,23 @@ end
 -- Values are raw Spring team IDs, comma-separated, e.g. zombieallies=1,3,5.
 function M.GetZombieAllyTeamIDs()
 	local result = {}
-	for slot = 1, 8 do
-		local value = M.GetOption(slot, "zombieallies")
-		if value ~= nil then
-			for token in tostring(value):gmatch("[^,]+") do
-				local teamID = tonumber((token:gsub("^%s+", ""):gsub("%s+$", "")))
-				if teamID ~= nil then
-					result[teamID] = true
-				end
+
+	local function addList(value)
+		if value == nil then
+			return
+		end
+		for token in tostring(value):gmatch("[^,]+") do
+			local teamID = tonumber((token:gsub("^%s+", ""):gsub("%s+$", "")))
+			if teamID ~= nil then
+				result[teamID] = true
 			end
 		end
+	end
+
+	addList(modOptions.zombieallies)
+
+	for slot = 1, 8 do
+		addList(M.GetOption(slot, "zombieallies"))
 	end
 	return result
 end
