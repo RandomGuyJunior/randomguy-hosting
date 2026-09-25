@@ -460,7 +460,7 @@ local function spawnZombies(featureID, unitDefID, healthReductionRatio, x, y, z,
 			spring.SetUnitHealth(unitID, unitHealth * healthReductionRatio)
 			spring.SetUnitRulesParam(unitID, "zombie", 1)
 			zombieModesByUnit[unitID] = zombieMode
-			if scavTeamID then
+			if scavTeamID and not teamZombieEnabled then
 				spring.TransferUnit(unitID, scavTeamID)
 			else
 				initializeZombieAI(unitID, unitDefToCreate)
@@ -703,6 +703,8 @@ end
 function gadget:UnitCreated(unitID, unitDefID, unitTeam, builderID)
 	if unitTeam == gaiaTeamID and builderID and isZombie(builderID) then
 		zombiesBeingBuilt[unitID] = true
+		zombieModesByUnit[unitID] =
+			zombieModesByUnit[builderID] or currentZombieMode
 		spring.SetUnitRulesParam(unitID, "resurrected", 0, { inlos = true })
 	end
 end
