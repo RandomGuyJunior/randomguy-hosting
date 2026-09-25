@@ -50,6 +50,10 @@ function M.Apply()
 			unitDef.weapons = unitDef.weapons or {}
 			unitDef.customparams = unitDef.customparams or {}
 
+			-- The launcher is a real mounted manual-fire weapon. The gadget only
+			-- replaces the missing COB weapon callbacks and consumes the AFUS.
+			unitDef.canmanualfire = true
+
 			local launcher = payloadBase(unitDef)
 			launcher.areaofeffect = 1920
 			launcher.commandfire = true
