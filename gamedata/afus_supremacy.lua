@@ -61,6 +61,11 @@ function M.Apply()
 				},
 			}
 
+			unitDef.weapons[#unitDef.weapons + 1] = {
+				def = "AFUS_SUPREMACY_PAYLOAD",
+				onlytargetcategory = "NONE",
+			}
+
 			unitDef.customparams = unitDef.customparams or {}
 			unitDef.customparams.afus_supremacy = 1
 		end
