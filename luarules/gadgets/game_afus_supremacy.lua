@@ -33,7 +33,6 @@ if not globalEnabled and not anyTeamEnabled then
 	return false
 end
 
-local CMD_AFUS_LAUNCH = 39958
 local LAUNCH_RANGE = 10000
 local LAUNCH_RANGE_SQ = LAUNCH_RANGE * LAUNCH_RANGE
 local INTERCEPT_RANGE = 3500
@@ -52,8 +51,6 @@ local spSetProjectileTarget = Spring.SetProjectileTarget
 local spDestroyUnit = Spring.DestroyUnit
 local spValidUnitID = Spring.ValidUnitID
 local spAreTeamsAllied = Spring.AreTeamsAllied
-local spInsertUnitCmdDesc = Spring.InsertUnitCmdDesc
-local spFindUnitCmdDesc = Spring.FindUnitCmdDesc
 
 local afusUnitDefs = {}
 local launcherBySource = {}
@@ -76,15 +73,6 @@ local function teamHasMode(teamID)
 	local slot = GG.TeamOptions.GetTeamSlotFromTeamID(teamID)
 	return slot and teamEnabled[slot] == true or false
 end
-
-local launchCommand = {
-	id = CMD_AFUS_LAUNCH,
-	type = CMDTYPE.ICON_MAP,
-	name = "Launch AFUS",
-	action = "afuslaunch",
-	cursor = "cursorattack",
-	tooltip = "Launch this AFUS itself at a ground target within 10,000 range. The AFUS is consumed after launch.",
-}
 
 local function getSourceForUnitDef(unitDefID)
 	local unitDef = UnitDefs[unitDefID]
@@ -175,15 +163,6 @@ local function spawnInterceptor(unitID, targetProjectileID)
 	return true
 end
 
-local function addLaunchCommand(unitID, unitDefID)
-	if not afusUnitDefs[unitDefID] or not teamHasMode(spGetUnitTeam(unitID)) then
-		return
-	end
-	if not spFindUnitCmdDesc(unitID, CMD_AFUS_LAUNCH) then
-		spInsertUnitCmdDesc(unitID, launchCommand)
-	end
-end
-
 local function findInterceptor(targetProjectileID, targetTeamID)
 	local px, _, pz = spGetProjectilePosition(targetProjectileID)
 	if not px then
@@ -215,10 +194,13 @@ local function findInterceptor(targetProjectileID, targetTeamID)
 end
 
 function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams)
-	if cmdID ~= CMD_AFUS_LAUNCH then
+	if cmdID ~= CMD.MANUALFIRE then
 		return true
 	end
-	if not afusUnitDefs[unitDefID] or not teamHasMode(teamID) or #cmdParams < 3 or pendingConsume[unitID] then
+	if not afusUnitDefs[unitDefID] then
+		return true
+	end
+	if not teamHasMode(teamID) or #cmdParams < 3 or pendingConsume[unitID] then
 		return false
 	end
 
@@ -277,21 +259,6 @@ function gadget:ProjectileDestroyed(projectileID)
 	end
 end
 
-function gadget:UnitCreated(unitID, unitDefID)
-	addLaunchCommand(unitID, unitDefID)
-end
-
-function gadget:UnitGiven(unitID, unitDefID)
-	local idx = spFindUnitCmdDesc(unitID, CMD_AFUS_LAUNCH)
-	if afusUnitDefs[unitDefID] and teamHasMode(spGetUnitTeam(unitID)) then
-		if not idx then
-			spInsertUnitCmdDesc(unitID, launchCommand)
-		end
-	elseif idx then
-		Spring.RemoveUnitCmdDesc(unitID, idx)
-	end
-end
-
 function gadget:UnitDestroyed(unitID)
 	pendingConsume[unitID] = nil
 end
@@ -322,8 +289,7 @@ function gadget:GameFrame(frame)
 end
 
 function gadget:Initialize()
-	gadgetHandler:RegisterCMDID(CMD_AFUS_LAUNCH)
-	gadgetHandler:RegisterAllowCommand(CMD_AFUS_LAUNCH)
+	gadgetHandler:RegisterAllowCommand(CMD.MANUALFIRE)
 
 	for weaponDefID, weaponDef in pairs(WeaponDefs) do
 		local cp = weaponDef.customParams
@@ -344,9 +310,5 @@ function gadget:Initialize()
 		if cp and cp.afus_supremacy then
 			afusUnitDefs[unitDefID] = true
 		end
-	end
-
-	for _, unitID in ipairs(Spring.GetAllUnits()) do
-		addLaunchCommand(unitID, spGetUnitDefID(unitID))
 	end
 end
