@@ -1872,6 +1872,15 @@ local options = {
 		},
 	},
 
+	{
+		key = "zombieallies",
+		name = "Zombie Allies",
+		desc = "Comma-separated Spring team IDs that zombies will never target. All teams in the same allyteam are treated as friendly.",
+		type = "string",
+		def = "",
+		section = "options_extra",
+	},
+
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 	-- Experimental Options
