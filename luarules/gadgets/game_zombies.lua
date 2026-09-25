@@ -25,6 +25,8 @@ local modOptions = spring.GetModOptions()
 local teamOptions = VFS.Include("gamedata/team_options.lua")
 local modOptionEnabled = modOptions.zombies ~= "disabled"
 local teamZombieEnabled = teamOptions.AnyTeamZombieEnabled()
+local zombieAllyTeamIDs = teamOptions.GetZombieAllyTeamIDs()
+local hasZombieAllies = next(zombieAllyTeamIDs) ~= nil
 local isIdleMode = GG.Zombies and GG.Zombies.IdleMode == true or false
 if not modOptionEnabled and not teamZombieEnabled and not isIdleMode then
 	return false
@@ -460,7 +462,7 @@ local function spawnZombies(featureID, unitDefID, healthReductionRatio, x, y, z,
 			spring.SetUnitHealth(unitID, unitHealth * healthReductionRatio)
 			spring.SetUnitRulesParam(unitID, "zombie", 1)
 			zombieModesByUnit[unitID] = zombieMode
-			if scavTeamID and not teamZombieEnabled then
+			if scavTeamID and modOptionEnabled and not hasZombieAllies then
 				spring.TransferUnit(unitID, scavTeamID)
 			else
 				initializeZombieAI(unitID, unitDefToCreate)
@@ -1212,7 +1214,7 @@ local function commandSetZombieMode(_, line, words, playerID)
 end
 
 function gadget:Initialize()
-	local initialMode = modOptions.zombies or "normal"
+	local initialMode = modOptionEnabled and (modOptions.zombies or "normal") or "normal"
 	applyZombieModeSettings(initialMode)
 
 	autoSpawningEnabled = (modOptionEnabled or teamZombieEnabled) and not isIdleMode
@@ -1238,7 +1240,7 @@ function gadget:Initialize()
 	GG.Zombies = {
 		IdleMode = isIdleMode,
 		TeamSpecific = teamZombieEnabled and not modOptionEnabled,
-		ZombieAllyTeamIDs = teamOptions.GetZombieAllyTeamIDs(),
+		ZombieAllyTeamIDs = zombieAllyTeamIDs,
 	}
 	GG.Zombies.SetZombie = setZombie
 	GG.Zombies.ConvertUnitsToZombies = convertUnitsToZombies
