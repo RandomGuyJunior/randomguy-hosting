@@ -199,9 +199,6 @@ local function ApplyRuntimePatch(unitID, unitDefID, teamID)
 	end
 
 	for field, value in pairs(desired) do
-		local field = entry.field
-		local value = entry.value
-
 		if field == "health" and type(value) == "number" then
 			local current, oldMax = Spring.GetUnitHealth(unitID)
 			local ratio = (current and oldMax and oldMax > 0) and (current / oldMax) or 1
@@ -291,6 +288,39 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 	end
 
 	local cp = unitDef.customParams or {}
+
+	-- Reset every team-specific build-option delta first. This is required
+	-- when a builder changes owners: additions from the previous team must
+	-- disappear and removals must return to the UnitDef baseline.
+	for candidateSlot = 1, 8 do
+		local candidateAdds =
+			SplitNames(cp["rg_team_build_add_" .. candidateSlot])
+		for i = 1, #candidateAdds do
+			local defID = ResolveNameToDefID(candidateAdds[i])
+			if defID then
+				GG.DynamicBuildOptions.RemoveFromUnit(unitID, defID)
+			end
+		end
+
+		local candidateRemoves =
+			SplitNames(cp["rg_team_build_remove_" .. candidateSlot])
+		for i = 1, #candidateRemoves do
+			local defID = ResolveNameToDefID(candidateRemoves[i])
+			if defID then
+				local static = false
+				for _, builtDefID in ipairs(unitDef.buildOptions or {}) do
+					if builtDefID == defID then
+						static = true
+						break
+					end
+				end
+				if static then
+					GG.DynamicBuildOptions.AddToUnit(unitID, defID)
+				end
+			end
+		end
+	end
+
 	local removeNames = SplitNames(cp["rg_team_build_remove_" .. slot])
 	for i = 1, #removeNames do
 		local defID = ResolveNameToDefID(removeNames[i])
