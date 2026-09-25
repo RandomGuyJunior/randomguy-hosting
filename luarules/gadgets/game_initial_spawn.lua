@@ -631,6 +631,9 @@ if gadgetHandler:IsSyncedCode() then
 
 		if not scenarioSpawnsUnits then
 			if not (luaAI and (string.find(luaAI, "Scavengers") or luaAI == "RaptorsAI")) then
+				if GG.TeamTweaks and GG.TeamTweaks.ResolveUnitDefID then
+					startUnit = GG.TeamTweaks.ResolveUnitDefID(teamID, startUnit)
+				end
 				local unitID = spCreateUnit(startUnit, x, y, z, 0, teamID)
 				if unitID then
 					startUnitList[#startUnitList + 1] = { unitID = unitID, teamID = teamID, x = x, y = y, z = z }
