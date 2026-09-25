@@ -6,18 +6,13 @@ local AFUS_NAMES = {
 	legafus = true,
 }
 
-local function isAFUS(name, unitDef)
-	if AFUS_NAMES[name] then
-		return true
-	end
-	local cp = unitDef.customparams or unitDef.customParams
-	local source = cp and cp.rg_team_tweak_source
-	return source and AFUS_NAMES[string.lower(source)] or false
+local function isAFUS(name)
+	return AFUS_NAMES[name] == true
 end
 
 function M.Apply()
 	for name, unitDef in pairs(UnitDefs) do
-		if isAFUS(name, unitDef) then
+		if isAFUS(name) then
 			unitDef.canattack = false
 			unitDef.noautofire = true
 			unitDef.weapondefs = unitDef.weapondefs or {}
@@ -31,6 +26,7 @@ function M.Apply()
 				collidefeature = false,
 				collidefriendly = false,
 				coverage = 3500,
+				cegtag = "NUKETRAIL",
 				edgeeffectiveness = 0.15,
 				explosiongenerator = "custom:afusexplxl",
 				flighttime = 40,
@@ -40,6 +36,12 @@ function M.Apply()
 				name = "AFUS Supremacy Payload",
 				range = 10000,
 				reloadtime = 1,
+				smokecolor = 0.85,
+				smokeperiod = 8,
+				smokesize = 32,
+				smoketime = 130,
+				smoketrail = true,
+				smoketrailcastshadow = true,
 				soundhit = "xplonuk3",
 				soundstart = "largegun",
 				targetable = 2,
