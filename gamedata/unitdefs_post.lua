@@ -217,7 +217,9 @@ local function enlargeSelectionVolumes()
 	end
 end
 
-local function do
+local function preProcessUnitDefs()
+	enlargeSelectionVolumes()
+
 	local modOptions = Spring.GetModOptions()
 	local teamOptions = VFS.Include("gamedata/team_options.lua")
 	local afusSupremacyEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
@@ -236,10 +238,6 @@ local function do
 			afusSupremacy.Apply()
 		end
 	end
-end
-
-preProcessUnitDefs()
-	enlargeSelectionVolumes()
 end
 
 local function createScavengerUnitDefs()
