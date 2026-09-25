@@ -54,17 +54,13 @@ function M.Apply()
 				weaponvelocity = 1800,
 				customparams = {
 					afus_supremacy = 1,
+					afus_source_unit = name,
 					kamikaze_mode = "consume",
 				},
 				damage = {
 					commanders = 3000,
 					default = 12800,
 				},
-			}
-
-			unitDef.weapons[#unitDef.weapons + 1] = {
-				def = "AFUS_SUPREMACY_PAYLOAD",
-				onlytargetcategory = "NONE",
 			}
 
 			unitDef.customparams = unitDef.customparams or {}
