@@ -567,6 +567,13 @@ local function RewriteKnownReferences(unitDef, nameMap)
 end
 
 local function MaterializeSlot(slot, tracker)
+	if next(tracker.deleted) then
+		local deletedNames = SortedKeys(tracker.deleted)
+		return false,
+			"team-scoped UnitDef deletion is not supported yet: "
+				.. table.concat(deletedNames, ", ")
+	end
+
 	local nameMap = {}
 	local changedNames = {}
 
@@ -600,7 +607,7 @@ local function MaterializeSlot(slot, tracker)
 		"UnitDefs"
 	)
 
-	return nameMap
+	return true, nameMap
 end
 
 function M.Process()
@@ -635,13 +642,22 @@ function M.Process()
 			end
 
 			if not failed then
-				MaterializeSlot(slot, tracker)
+				local materialized, materializeResult =
+					MaterializeSlot(slot, tracker)
 
-				Echo(
-					"Team", slot,
-					"reads=" .. tostring(#SortedKeys(tracker.reads)),
-					"writes=" .. tostring(#SortedKeys(tracker.writes))
-				)
+				if not materialized then
+					Echo(
+						"Team", slot,
+						"materialization failed:",
+						tostring(materializeResult)
+					)
+				else
+					Echo(
+						"Team", slot,
+						"reads=" .. tostring(#SortedKeys(tracker.reads)),
+						"writes=" .. tostring(#SortedKeys(tracker.writes))
+					)
+				end
 			end
 		end
 	end
