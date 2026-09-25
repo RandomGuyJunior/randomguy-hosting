@@ -3,7 +3,7 @@ local gadget = gadget ---@type Gadget
 function gadget:GetInfo()
 	return {
 		name = "Kamikaze Launcher/Interceptors",
-		desc = "Consumes kamikaze launcher/interceptor units after successful weapon fire",
+		desc = "Provides generic consume/self-destruct behavior for kamikaze launcher/interceptor units",
 		author = "RandomGuyJunior",
 		date = "2026",
 		license = "GNU GPL, v2 or later",
@@ -16,97 +16,62 @@ if not gadgetHandler:IsSyncedCode() then
 	return false
 end
 
-local modOptions = Spring.GetModOptions()
-local teamOptions = VFS.Include("gamedata/team_options.lua")
-local globalEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
-
-local teamEnabled = {}
-local anyTeamEnabled = false
-for slot = 1, 8 do
-	teamEnabled[slot] = teamOptions.IsOptionEnabled(slot, "afus_supremacy")
-	if teamEnabled[slot] then
-		anyTeamEnabled = true
-	end
-end
-
-if not globalEnabled and not anyTeamEnabled then
-	return false
-end
-
-local spGetUnitTeam = Spring.GetUnitTeam
-local spGetUnitDefID = Spring.GetUnitDefID
-local spGetUnitIsDead = Spring.GetUnitIsDead
 local spDestroyUnit = Spring.DestroyUnit
+local spGetUnitIsDead = Spring.GetUnitIsDead
 local spValidUnitID = Spring.ValidUnitID
 
-local afusUnitDefs = {}
-local supremacyWeaponDefs = {}
-local pendingConsume = {}
+local pending = {}
 local currentFrame = 0
 
-local function teamHasMode(teamID)
-	if globalEnabled then
-		return true
-	end
-	if not GG.TeamOptions or not GG.TeamOptions.GetTeamSlotFromTeamID then
+local function validUnit(unitID)
+	return unitID and spValidUnitID(unitID) and not spGetUnitIsDead(unitID)
+end
+
+local function queue(unitID, explode)
+	if not validUnit(unitID) then
 		return false
 	end
-	local slot = GG.TeamOptions.GetTeamSlotFromTeamID(teamID)
-	return slot and teamEnabled[slot] == true or false
-end
-
-local function isLiveSupremacyAFUS(unitID)
-	if not unitID or not spValidUnitID(unitID) or spGetUnitIsDead(unitID) then
-		return false
-	end
-	local unitDefID = spGetUnitDefID(unitID)
-	local teamID = spGetUnitTeam(unitID)
-	return unitDefID
-		and afusUnitDefs[unitDefID] == true
-		and teamHasMode(teamID)
-end
-
-function gadget:ProjectileCreated(projectileID, ownerID, weaponDefID)
-	if not supremacyWeaponDefs[weaponDefID] then
-		return
-	end
-	if ownerID and isLiveSupremacyAFUS(ownerID) then
-		pendingConsume[ownerID] = currentFrame + 1
-	end
-end
-
-function gadget:UnitDestroyed(unitID)
-	pendingConsume[unitID] = nil
+	pending[unitID] = {
+		frame = currentFrame + 1,
+		explode = explode == true,
+	}
+	return true
 end
 
 function gadget:GameFrame(frame)
 	currentFrame = frame
 
-	for unitID, consumeFrame in pairs(pendingConsume) do
-		if frame >= consumeFrame then
-			pendingConsume[unitID] = nil
-			if isLiveSupremacyAFUS(unitID) then
-				-- Do not use selfDestruct here: the projectile itself carries the AFUS
-				-- payload. We only remove the consumed launcher/interceptor unit.
-				spDestroyUnit(unitID, false, true)
+	for unitID, data in pairs(pending) do
+		if frame >= data.frame then
+			pending[unitID] = nil
+			if validUnit(unitID) then
+				if data.explode then
+					spDestroyUnit(unitID, true, false)
+				else
+					spDestroyUnit(unitID, false, true)
+				end
 			end
 		end
 	end
 end
 
-function gadget:Initialize()
-	for weaponDefID, weaponDef in pairs(WeaponDefs) do
-		local cp = weaponDef.customParams
-		if cp and cp.afus_supremacy then
-			supremacyWeaponDefs[weaponDefID] = true
-			Script.SetWatchProjectile(weaponDefID, true)
-		end
-	end
+function gadget:UnitDestroyed(unitID)
+	pending[unitID] = nil
+end
 
-	for unitDefID, unitDef in pairs(UnitDefs) do
-		local cp = unitDef.customParams
-		if cp and cp.afus_supremacy then
-			afusUnitDefs[unitDefID] = true
-		end
+function gadget:Initialize()
+	GG.KamikazeLauncherInterceptors = {
+		Consume = function(unitID)
+			return queue(unitID, false)
+		end,
+		SelfDestruct = function(unitID)
+			return queue(unitID, true)
+		end,
+	}
+end
+
+function gadget:Shutdown()
+	if GG.KamikazeLauncherInterceptors then
+		GG.KamikazeLauncherInterceptors = nil
 	end
 end
