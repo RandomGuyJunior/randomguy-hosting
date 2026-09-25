@@ -158,11 +158,47 @@ local function ApplyRuntimePatch(unitID, unitDefID, teamID)
 
 	local cp = unitDef.customParams or {}
 	local patch = cp["rg_team_runtime_patch_" .. slot]
-	if not patch then
-		return
+
+	-- Build the set of fields that any team can modify on this UnitDef.
+	-- This lets transfers restore the original UnitDef value before applying
+	-- the receiving team's patch, preventing Team 1 state leaking to Team 2.
+	local relevantFields = {}
+	for candidateSlot = 1, 8 do
+		local candidate = cp["rg_team_runtime_patch_" .. candidateSlot]
+		if candidate then
+			for _, candidateEntry in ipairs(ParseRuntimePatch(candidate)) do
+				relevantFields[candidateEntry.field] = true
+			end
+		end
 	end
 
-	for _, entry in ipairs(ParseRuntimePatch(patch)) do
+	local desired = {}
+	for field in pairs(relevantFields) do
+		if field == "health" then desired[field] = unitDef.health
+		elseif field == "workertime" then desired[field] = unitDef.buildSpeed
+		elseif field == "builddistance" then desired[field] = unitDef.buildDistance
+		elseif field == "speed" or field == "maxvelocity" then desired[field] = unitDef.speed
+		elseif field == "turnrate" then desired[field] = unitDef.turnRate
+		elseif field == "sightdistance" then desired[field] = unitDef.losRadius
+		elseif field == "airsightdistance" then desired[field] = unitDef.airLosRadius
+		elseif field == "radardistance" then desired[field] = unitDef.radarDistance
+		elseif field == "sonardistance" then desired[field] = unitDef.sonarDistance
+		elseif field == "extractsmetal" then desired[field] = unitDef.extractsMetal
+		elseif field == "energymake" then desired[field] = unitDef.energyMake
+		elseif field == "metalmake" then desired[field] = unitDef.metalMake
+		elseif field == "energyupkeep" then desired[field] = unitDef.energyUpkeep
+		elseif field == "energystorage" then desired[field] = unitDef.energyStorage
+		elseif field == "metalstorage" then desired[field] = unitDef.metalStorage
+		end
+	end
+
+	if patch then
+		for _, entry in ipairs(ParseRuntimePatch(patch)) do
+			desired[entry.field] = entry.value
+		end
+	end
+
+	for field, value in pairs(desired) do
 		local field = entry.field
 		local value = entry.value
 
@@ -243,7 +279,6 @@ local function ApplyRuntimePatch(unitID, unitDefID, teamID)
 		end
 	end
 end
-
 local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 	local slot = teamIDToSlot[teamID]
 	if not slot or not GG.DynamicBuildOptions then
