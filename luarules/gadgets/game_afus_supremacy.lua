@@ -2,8 +2,8 @@ local gadget = gadget ---@type Gadget
 
 function gadget:GetInfo()
 	return {
-		name = "AFUS Supremacy",
-		desc = "Consumes AFUS units after successful Supremacy weapon fire",
+		name = "Kamikaze Launcher/Interceptors",
+		desc = "Consumes kamikaze launcher/interceptor units after successful weapon fire",
 		author = "RandomGuyJunior",
 		date = "2026",
 		license = "GNU GPL, v2 or later",
