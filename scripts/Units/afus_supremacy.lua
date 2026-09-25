@@ -29,6 +29,9 @@ function script.FireWeapon1()
 end
 
 function script.Shot1()
+	if GG and GG.KamikazeLauncherInterceptors then
+		GG.KamikazeLauncherInterceptors.Consume(unitID)
+	end
 end
 
 function script.AimFromWeapon2()
@@ -48,4 +51,7 @@ function script.FireWeapon2()
 end
 
 function script.Shot2()
+	if GG and GG.KamikazeLauncherInterceptors then
+		GG.KamikazeLauncherInterceptors.Consume(unitID)
+	end
 end
