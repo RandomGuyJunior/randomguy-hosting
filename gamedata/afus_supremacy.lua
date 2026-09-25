@@ -52,6 +52,7 @@ function M.Apply()
 
 			local launcher = payloadBase(unitDef)
 			launcher.areaofeffect = 1920
+			launcher.commandfire = true
 			launcher.edgeeffectiveness = 0.15
 			launcher.explosiongenerator = "custom:afusexplxl"
 			launcher.impulsefactor = 1
@@ -95,10 +96,14 @@ function M.Apply()
 			unitDef.weapondefs.afus_supremacy_launcher = launcher
 			unitDef.weapondefs.afus_supremacy_interceptor = interceptor
 
-			-- Only the interceptor needs to be mounted. This gives the UnitDef a real
-			-- interceptor weapon (and therefore engine/UI coverage) while the gadget
-			-- spawns both projectile types directly so the AFUS COB scripts need no
-			-- weapon callbacks.
+			-- Mount both weapons so the engine exposes interceptor coverage and BAR's
+			-- normal manual-launch UI sees the commandfire launcher. The gadget catches
+			-- the manual-fire order and spawns the projectile directly, so the AFUS COB
+			-- scripts still need no weapon callbacks.
+			unitDef.weapons[#unitDef.weapons + 1] = {
+				def = "AFUS_SUPREMACY_LAUNCHER",
+				onlytargetcategory = "NOTSUB",
+			}
 			unitDef.weapons[#unitDef.weapons + 1] = {
 				def = "AFUS_SUPREMACY_INTERCEPTOR",
 				onlytargetcategory = "NONE",
