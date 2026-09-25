@@ -13,8 +13,6 @@ end
 function M.Apply()
 	for name, unitDef in pairs(UnitDefs) do
 		if isAFUS(name) then
-			unitDef.canattack = false
-			unitDef.noautofire = true
 			unitDef.weapondefs = unitDef.weapondefs or {}
 			unitDef.weapons = unitDef.weapons or {}
 
