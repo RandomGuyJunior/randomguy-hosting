@@ -372,18 +372,22 @@ function gadget:Initialize()
 	gadgetHandler:RegisterCMDID(CMD_AFUS_LAUNCH)
 	gadgetHandler:RegisterAllowCommand(CMD_AFUS_LAUNCH)
 
+	local payloadBySourceName = {}
+	for weaponDefID, weaponDef in pairs(WeaponDefs) do
+		local cp = weaponDef.customParams
+		if cp and cp.afus_supremacy and cp.afus_source_unit then
+			payloadBySourceName[string.lower(cp.afus_source_unit)] = weaponDefID
+			payloadWeaponDefs[weaponDefID] = true
+			Script.SetWatchProjectile(weaponDefID, true)
+		end
+	end
+
 	for unitDefID, unitDef in pairs(UnitDefs) do
-		if unitDef.customParams and unitDef.customParams.afus_supremacy then
+		local cp = unitDef.customParams
+		if cp and cp.afus_supremacy then
 			afusUnitDefs[unitDefID] = true
-			for _, weapon in ipairs(unitDef.weapons or {}) do
-				local weaponDef = WeaponDefs[weapon.weaponDef]
-				if weaponDef and weaponDef.customParams and weaponDef.customParams.afus_supremacy then
-					payloadWeaponByUnitDef[unitDefID] = weapon.weaponDef
-					payloadWeaponDefs[weapon.weaponDef] = true
-					Script.SetWatchProjectile(weapon.weaponDef, true)
-					break
-				end
-			end
+			local sourceName = string.lower(cp.rg_team_tweak_source or unitDef.name)
+			payloadWeaponByUnitDef[unitDefID] = payloadBySourceName[sourceName]
 		end
 	end
 
