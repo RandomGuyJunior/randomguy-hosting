@@ -19,17 +19,16 @@ end
 local modOptions = Spring.GetModOptions()
 local teamOptions = VFS.Include("gamedata/team_options.lua")
 local globalEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
+
 local teamEnabled = {}
-for slot = 1, 8 do
-	teamEnabled[slot] = teamOptions.IsOptionEnabled(slot, "afus_supremacy")
-end
 local anyTeamEnabled = false
 for slot = 1, 8 do
+	teamEnabled[slot] = teamOptions.IsOptionEnabled(slot, "afus_supremacy")
 	if teamEnabled[slot] then
 		anyTeamEnabled = true
-		break
 	end
 end
+
 if not globalEnabled and not anyTeamEnabled then
 	return false
 end
@@ -37,23 +36,33 @@ end
 local CMD_AFUS_LAUNCH = 39958
 local LAUNCH_RANGE = 10000
 local LAUNCH_RANGE_SQ = LAUNCH_RANGE * LAUNCH_RANGE
+local INTERCEPT_RANGE = 3500
+local INTERCEPT_RANGE_SQ = INTERCEPT_RANGE * INTERCEPT_RANGE
+local PROJECTILE_TARGET = string.byte("p")
 
 local spGetUnitPosition = Spring.GetUnitPosition
 local spGetUnitTeam = Spring.GetUnitTeam
 local spGetUnitDefID = Spring.GetUnitDefID
 local spGetUnitIsDead = Spring.GetUnitIsDead
 local spGetGroundHeight = Spring.GetGroundHeight
+local spGetProjectilePosition = Spring.GetProjectilePosition
+local spGetProjectileTeamID = Spring.GetProjectileTeamID
 local spSpawnProjectile = Spring.SpawnProjectile
 local spSetProjectileTarget = Spring.SetProjectileTarget
 local spDestroyUnit = Spring.DestroyUnit
 local spValidUnitID = Spring.ValidUnitID
+local spAreTeamsAllied = Spring.AreTeamsAllied
 local spInsertUnitCmdDesc = Spring.InsertUnitCmdDesc
 local spFindUnitCmdDesc = Spring.FindUnitCmdDesc
 
 local afusUnitDefs = {}
-local payloadWeaponByUnitDef = {}
-local payloadWeaponDefs = {}
+local launcherBySource = {}
+local interceptorBySource = {}
+local roleByWeaponDef = {}
 
+local trackedLaunchers = {}
+local assignedInterceptor = {}
+local interceptorTarget = {}
 local pendingConsume = {}
 local currentFrame = 0
 
@@ -76,6 +85,15 @@ local launchCommand = {
 	cursor = "cursorattack",
 	tooltip = "Launch this AFUS itself at a ground target within 10,000 range. The AFUS is consumed after launch.",
 }
+
+local function getSourceForUnitDef(unitDefID)
+	local unitDef = UnitDefs[unitDefID]
+	if not unitDef then
+		return nil
+	end
+	local cp = unitDef.customParams or {}
+	return cp.afus_supremacy_source or cp.rg_team_tweak_source or string.lower(unitDef.name or "")
+end
 
 local function isLiveAFUS(unitID)
 	if not unitID or not spValidUnitID(unitID) or spGetUnitIsDead(unitID) then
@@ -108,7 +126,8 @@ end
 
 local function spawnGroundPayload(unitID, x, y, z)
 	local unitDefID = spGetUnitDefID(unitID)
-	local weaponDefID = unitDefID and payloadWeaponByUnitDef[unitDefID]
+	local source = unitDefID and getSourceForUnitDef(unitDefID)
+	local weaponDefID = source and launcherBySource[string.lower(source)]
 	if not weaponDefID then
 		return false
 	end
@@ -127,6 +146,35 @@ local function spawnGroundPayload(unitID, x, y, z)
 	return true
 end
 
+local function spawnInterceptor(unitID, targetProjectileID)
+	local tx, ty, tz = spGetProjectilePosition(targetProjectileID)
+	if not tx then
+		return false
+	end
+
+	local unitDefID = spGetUnitDefID(unitID)
+	local source = unitDefID and getSourceForUnitDef(unitDefID)
+	local weaponDefID = source and interceptorBySource[string.lower(source)]
+	if not weaponDefID then
+		return false
+	end
+
+	local params = buildProjectileParams(unitID, tx, ty, tz)
+	if not params then
+		return false
+	end
+
+	local projectileID = spSpawnProjectile(weaponDefID, params)
+	if not projectileID then
+		return false
+	end
+
+	spSetProjectileTarget(projectileID, targetProjectileID, PROJECTILE_TARGET)
+	assignedInterceptor[targetProjectileID] = projectileID
+	interceptorTarget[projectileID] = targetProjectileID
+	return true
+end
+
 local function addLaunchCommand(unitID, unitDefID)
 	if not afusUnitDefs[unitDefID] or not teamHasMode(spGetUnitTeam(unitID)) then
 		return
@@ -134,6 +182,36 @@ local function addLaunchCommand(unitID, unitDefID)
 	if not spFindUnitCmdDesc(unitID, CMD_AFUS_LAUNCH) then
 		spInsertUnitCmdDesc(unitID, launchCommand)
 	end
+end
+
+local function findInterceptor(targetProjectileID, targetTeamID)
+	local px, _, pz = spGetProjectilePosition(targetProjectileID)
+	if not px then
+		return nil
+	end
+
+	local bestUnitID
+	local bestDistSq
+
+	for _, unitID in ipairs(Spring.GetAllUnits()) do
+		if isLiveAFUS(unitID) and not pendingConsume[unitID] then
+			local teamID = spGetUnitTeam(unitID)
+			if teamID and targetTeamID and not spAreTeamsAllied(teamID, targetTeamID) then
+				local ux, _, uz = spGetUnitPosition(unitID)
+				if ux then
+					local dx = ux - px
+					local dz = uz - pz
+					local distSq = dx * dx + dz * dz
+					if distSq <= INTERCEPT_RANGE_SQ and (not bestDistSq or distSq < bestDistSq) then
+						bestDistSq = distSq
+						bestUnitID = unitID
+					end
+				end
+			end
+		end
+	end
+
+	return bestUnitID
 end
 
 function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams)
@@ -149,7 +227,8 @@ function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams)
 		return false
 	end
 
-	local x, z = tonumber(cmdParams[1]), tonumber(cmdParams[3])
+	local x = tonumber(cmdParams[1])
+	local z = tonumber(cmdParams[3])
 	if not x or not z then
 		return false
 	end
@@ -166,11 +245,35 @@ function gadget:AllowCommand(unitID, unitDefID, teamID, cmdID, cmdParams)
 end
 
 function gadget:ProjectileCreated(projectileID, ownerID, weaponDefID)
-	if not payloadWeaponDefs[weaponDefID] then
+	local role = roleByWeaponDef[weaponDefID]
+	if not role then
 		return
 	end
+
 	if ownerID and isLiveAFUS(ownerID) then
 		queueConsume(ownerID)
+	end
+
+	if role == "launcher" then
+		trackedLaunchers[projectileID] = spGetProjectileTeamID(projectileID) or (ownerID and spGetUnitTeam(ownerID))
+	end
+end
+
+function gadget:ProjectileDestroyed(projectileID)
+	trackedLaunchers[projectileID] = nil
+
+	local targetID = interceptorTarget[projectileID]
+	if targetID then
+		if assignedInterceptor[targetID] == projectileID then
+			assignedInterceptor[targetID] = nil
+		end
+		interceptorTarget[projectileID] = nil
+	end
+
+	local interceptorID = assignedInterceptor[projectileID]
+	if interceptorID then
+		interceptorTarget[interceptorID] = nil
+		assignedInterceptor[projectileID] = nil
 	end
 end
 
@@ -205,25 +308,41 @@ function gadget:GameFrame(frame)
 		end
 	end
 
+	for projectileID, targetTeamID in pairs(trackedLaunchers) do
+		if not spGetProjectilePosition(projectileID) then
+			trackedLaunchers[projectileID] = nil
+			assignedInterceptor[projectileID] = nil
+		elseif not assignedInterceptor[projectileID] then
+			local unitID = findInterceptor(projectileID, targetTeamID)
+			if unitID then
+				spawnInterceptor(unitID, projectileID)
+			end
+		end
+	end
 end
 
 function gadget:Initialize()
 	gadgetHandler:RegisterCMDID(CMD_AFUS_LAUNCH)
 	gadgetHandler:RegisterAllowCommand(CMD_AFUS_LAUNCH)
 
+	for weaponDefID, weaponDef in pairs(WeaponDefs) do
+		local cp = weaponDef.customParams
+		if cp and cp.afus_supremacy and cp.afus_source_unit and cp.afus_supremacy_role then
+			local source = string.lower(cp.afus_source_unit)
+			roleByWeaponDef[weaponDefID] = cp.afus_supremacy_role
+			if cp.afus_supremacy_role == "launcher" then
+				launcherBySource[source] = weaponDefID
+			elseif cp.afus_supremacy_role == "interceptor" then
+				interceptorBySource[source] = weaponDefID
+			end
+			Script.SetWatchProjectile(weaponDefID, true)
+		end
+	end
+
 	for unitDefID, unitDef in pairs(UnitDefs) do
 		local cp = unitDef.customParams
 		if cp and cp.afus_supremacy then
 			afusUnitDefs[unitDefID] = true
-			for _, weapon in ipairs(unitDef.weapons or {}) do
-				local weaponDef = WeaponDefs[weapon.weaponDef]
-				if weaponDef and weaponDef.customParams and weaponDef.customParams.afus_supremacy then
-					payloadWeaponByUnitDef[unitDefID] = weapon.weaponDef
-					payloadWeaponDefs[weapon.weaponDef] = true
-					Script.SetWatchProjectile(weapon.weaponDef, true)
-					break
-				end
-			end
 		end
 	end
 
