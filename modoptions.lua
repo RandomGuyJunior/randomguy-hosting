@@ -1127,7 +1127,7 @@ local options = {
 	{
 		key = "afus_supremacy",
 		name = "AFUS Supremacy",
-		desc = "Advanced Fusion Reactors become single-use launchers and anti-nuke interceptors. They launch themselves with 10,000 range and 3,500 interception coverage, dealing an AFUS self-destruct explosion on impact. May the most AFUS win. Recommended: Resource Production x2.",
+		desc = "May the most AFUS win. recommended resource production x2.",
 		type = "bool",
 		section = "options_extra",
 		def = false,
