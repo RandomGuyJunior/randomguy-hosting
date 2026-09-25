@@ -19,6 +19,7 @@ local postProcFile = "gamedata/unitdefs_post.lua"
 local teamPostProcFile = "gamedata/teamdefs_post.lua"
 
 local system = VFS.Include("gamedata/system.lua")
+local teamOptions = VFS.Include("gamedata/team_options.lua")
 
 local section = "unitdefs.lua"
 
@@ -58,7 +59,7 @@ if scavengersEnabled then
 	legionEnabled = true
 end
 
-if Spring.GetModOptions().zombies ~= "disabled" then
+if Spring.GetModOptions().zombies ~= "disabled" or teamOptions.AnyTeamZombieEnabled() then
 	scavengersEnabled = true
 	legionEnabled = true
 end
