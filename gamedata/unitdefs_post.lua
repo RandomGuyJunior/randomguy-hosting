@@ -420,6 +420,22 @@ if SaveDefsToCustomParams then
 end
 
 preProcessTweakOptions()
+
+--------------------------------------------------------------------------------
+-- RandomGuy team-scoped tweakunits/tweakdefs
+--
+-- Global BAR tweaks above establish the shared baseline. Team tweaks are then
+-- interpreted against that baseline and materialized as namespaced UnitDefs.
+--------------------------------------------------------------------------------
+
+local teamTweaksFile = "gamedata/team_tweaks.lua"
+if VFS.FileExists(teamTweaksFile) then
+	local teamTweaks = VFS.Include(teamTweaksFile)
+	if teamTweaks and teamTweaks.Process then
+		teamTweaks.Process()
+	end
+end
+
 preProcessUnitDefs()
 if scavengersEnabled then
 	createScavengerUnitDefs()
