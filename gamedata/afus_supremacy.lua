@@ -53,6 +53,7 @@ function M.Apply()
 			-- The launcher is a real mounted manual-fire weapon. The gadget only
 			-- replaces the missing COB weapon callbacks and consumes the AFUS.
 			unitDef.canmanualfire = true
+			unitDef.script = "Units/afus_supremacy.lua"
 
 			local launcher = payloadBase(unitDef)
 			launcher.areaofeffect = 1920
@@ -110,7 +111,7 @@ function M.Apply()
 			}
 			unitDef.weapons[#unitDef.weapons + 1] = {
 				def = "AFUS_SUPREMACY_INTERCEPTOR",
-				onlytargetcategory = "NONE",
+				badtargetcategory = "ALL",
 			}
 
 			unitDef.customparams.afus_supremacy = 1
