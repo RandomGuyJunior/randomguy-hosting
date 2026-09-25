@@ -217,10 +217,24 @@ local function enlargeSelectionVolumes()
 	end
 end
 
-local function if Spring.GetModOptions().afus_supremacy then
-	local afusSupremacy = VFS.Include("gamedata/afus_supremacy.lua")
-	if afusSupremacy and afusSupremacy.Apply then
-		afusSupremacy.Apply()
+local function do
+	local modOptions = Spring.GetModOptions()
+	local teamOptions = VFS.Include("gamedata/team_options.lua")
+	local afusSupremacyEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
+	if not afusSupremacyEnabled then
+		for slot = 1, 8 do
+			if teamOptions.IsOptionEnabled(slot, "afus_supremacy") then
+				afusSupremacyEnabled = true
+				break
+			end
+		end
+	end
+
+	if afusSupremacyEnabled then
+		local afusSupremacy = VFS.Include("gamedata/afus_supremacy.lua")
+		if afusSupremacy and afusSupremacy.Apply then
+			afusSupremacy.Apply()
+		end
 	end
 end
 
