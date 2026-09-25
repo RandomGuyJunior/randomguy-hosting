@@ -354,15 +354,13 @@ function gadget:GameFrame(frame)
 		end
 	end
 
-	if frame % 15 == 0 then
-		for projectileID, payload in pairs(payloads) do
-			if payload.kind == "attack" then
-				if spGetProjectilePosition(projectileID) then
-					tryAssignInterceptor(projectileID, payload)
-				else
-					payloads[projectileID] = nil
-					assignedTarget[projectileID] = nil
-				end
+	for projectileID, payload in pairs(payloads) do
+		if payload.kind == "attack" then
+			if spGetProjectilePosition(projectileID) then
+				tryAssignInterceptor(projectileID, payload)
+			else
+				payloads[projectileID] = nil
+				assignedTarget[projectileID] = nil
 			end
 		end
 	end
