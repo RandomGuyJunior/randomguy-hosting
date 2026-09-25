@@ -1859,6 +1859,15 @@ local options = {
 
 	-- NOTE: update language/en/interface.json when you change name or desc
 	{
+		key = "afus_supremacy",
+		name = "AFUS Supremacy",
+		desc = "Every AFUS becomes a disposable 10,000-range launcher and a 3,500-coverage AFUS-only interceptor. May the most AFUS win. Recommended resource production x2.",
+		type = "bool",
+		def = false,
+		section = "options_extra",
+	},
+
+	{
 		key = "zombies",
 		name = "Scavenger Zombies",
 		type = "list",
