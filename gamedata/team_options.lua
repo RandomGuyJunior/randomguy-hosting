@@ -114,6 +114,42 @@ function M.TeamHasFeature(slot, key)
 	return IsEnabled(M.GetOption(slot, key))
 end
 
+function M.GetZombieMode(slot, fallback)
+	local value = M.GetOption(slot, "zombies", fallback or "disabled")
+	value = tostring(value or "disabled"):lower()
+	if value ~= "normal" and value ~= "hard" and value ~= "nightmare" and value ~= "akumu" then
+		return "disabled"
+	end
+	return value
+end
+
+function M.AnyTeamZombieEnabled()
+	for slot = 1, 8 do
+		if M.GetZombieMode(slot, "disabled") ~= "disabled" then
+			return true
+		end
+	end
+	return false
+end
+
+-- zombieallies is intentionally global/shared across all team zombie configs.
+-- Values are raw Spring team IDs, comma-separated, e.g. zombieallies=1,3,5.
+function M.GetZombieAllyTeamIDs()
+	local result = {}
+	for slot = 1, 8 do
+		local value = M.GetOption(slot, "zombieallies")
+		if value ~= nil then
+			for token in tostring(value):gmatch("[^,]+") do
+				local teamID = tonumber((token:gsub("^%s+", ""):gsub("%s+$", "")))
+				if teamID ~= nil then
+					result[teamID] = true
+				end
+			end
+		end
+	end
+	return result
+end
+
 M.Options = teamOptions
 M.IsEnabled = IsEnabled
 
