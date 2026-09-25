@@ -23,9 +23,9 @@ local function payloadBase(unitDef)
 		collidefeature = false,
 		collidefriendly = false,
 		cegtag = "NUKETRAIL",
-		flighttime = 40,
+		flighttime = 12,
 		model = unitDef.objectname,
-		reloadtime = 1,
+		reloadtime = 10,
 		smokecolor = 0.85,
 		smokeperiod = 8,
 		smokesize = 32,
@@ -34,11 +34,13 @@ local function payloadBase(unitDef)
 		smoketrailcastshadow = true,
 		tolerance = 10000,
 		tracks = true,
-		turnrate = 12000,
-		weaponacceleration = 300,
+		turnrate = 18000,
+		weaponacceleration = 600,
 		weapontimer = 8,
 		weapontype = "StarburstLauncher",
-		weaponvelocity = 1800,
+		uptime = 0.4,
+		trajectoryheight = 0.35,
+		weaponvelocity = 2200,
 	}
 end
 
