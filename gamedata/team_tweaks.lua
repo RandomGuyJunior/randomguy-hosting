@@ -518,6 +518,109 @@ local function ExecuteTweakDefs(tracker, tweak)
 	return true
 end
 
+local RUNTIME_SAFE_FIELDS = {
+	health = true,
+	workertime = true,
+	builddistance = true,
+	speed = true,
+	maxvelocity = true,
+	turnrate = true,
+	sightdistance = true,
+	airsightdistance = true,
+	radardistance = true,
+	sonardistance = true,
+	extractsmetal = true,
+	energymake = true,
+	metalmake = true,
+	energystorage = true,
+	metalstorage = true,
+	energyupkeep = true,
+}
+
+local function SplitPath(path)
+	local parts = {}
+	for part in tostring(path):gmatch("[^.]+") do
+		parts[#parts + 1] = part
+	end
+	return parts
+end
+
+local function GetNested(root, parts, first)
+	local value = root
+	for i = first or 1, #parts do
+		if type(value) ~= "table" then
+			return nil
+		end
+		value = value[parts[i]]
+	end
+	return value
+end
+
+local function IsBuildOptionsPath(parts)
+	return parts[3] == "buildoptions" or parts[3] == "buildOptions"
+end
+
+local function IsRuntimeSafeWrite(path)
+	local parts = SplitPath(path)
+	if parts[1] ~= "UnitDefs" or not parts[2] then
+		return false
+	end
+	if IsBuildOptionsPath(parts) then
+		return true
+	end
+	return #parts == 3 and RUNTIME_SAFE_FIELDS[string.lower(parts[3])] == true
+end
+
+local function SetCustomParam(unitDef, key, value)
+	unitDef.customparams = unitDef.customparams or {}
+	unitDef.customparams[key] = value
+end
+
+local function EncodeRuntimePatch(entries)
+	local rows = {}
+	for i = 1, #entries do
+		local entry = entries[i]
+		rows[#rows + 1] =
+			entry.field
+			.. "\t" .. tostring(entry.old or "")
+			.. "\t" .. tostring(entry.new or "")
+	end
+	return table.concat(rows, "\n")
+end
+
+local function ToNameSet(options)
+	local set = {}
+	if type(options) == "table" then
+		for _, name in pairs(options) do
+			if type(name) == "string" then
+				set[string.lower(name)] = true
+			end
+		end
+	end
+	return set
+end
+
+local function BuildOptionDiff(base, changed)
+	local oldSet = ToNameSet(base)
+	local newSet = ToNameSet(changed)
+	local added, removed = {}, {}
+
+	for name in pairs(newSet) do
+		if not oldSet[name] then
+			added[#added + 1] = name
+		end
+	end
+	for name in pairs(oldSet) do
+		if not newSet[name] then
+			removed[#removed + 1] = name
+		end
+	end
+
+	table.sort(added)
+	table.sort(removed)
+	return added, removed
+end
+
 local function RewriteNameList(value, nameMap)
 	if type(value) ~= "string" then
 		return value
@@ -530,23 +633,31 @@ local function RewriteNameList(value, nameMap)
 	return table.concat(out, " ")
 end
 
-local function RewriteKnownReferences(unitDef, nameMap)
+local function RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 	local cp = unitDef.customparams or unitDef.customParams
-	if cp then
-		if cp.evolution_target then
-			cp.evolution_target =
-				nameMap[string.lower(cp.evolution_target)] or cp.evolution_target
+	if cp and cp.evolution_target then
+		local target = string.lower(cp.evolution_target)
+		if hiddenNames[target] then
+			cp.evolution_target = nil
+		else
+			cp.evolution_target = nameMap[target] or cp.evolution_target
 		end
 	end
 
 	local buildoptions = unitDef.buildoptions or unitDef.buildOptions
 	if type(buildoptions) == "table" then
+		local out = {}
 		for i = 1, #buildoptions do
 			local value = buildoptions[i]
-			if type(value) == "string" then
-				buildoptions[i] = nameMap[string.lower(value)] or value
+			if type(value) ~= "string" or not hiddenNames[string.lower(value)] then
+				if type(value) == "string" then
+					value = nameMap[string.lower(value)] or value
+				end
+				out[#out + 1] = value
 			end
 		end
+		for k in pairs(buildoptions) do buildoptions[k] = nil end
+		for i = 1, #out do buildoptions[i] = out[i] end
 	end
 
 	local weapondefs = unitDef.weapondefs or unitDef.weaponDefs
@@ -567,44 +678,128 @@ local function RewriteKnownReferences(unitDef, nameMap)
 end
 
 local function MaterializeSlot(slot, tracker)
-	if next(tracker.deleted) then
-		local deletedNames = SortedKeys(tracker.deleted)
-		return false,
-			"team-scoped UnitDef deletion is not supported yet: "
-				.. table.concat(deletedNames, ", ")
+	local hiddenNames = {}
+	for name in pairs(tracker.deleted) do
+		hiddenNames[string.lower(name)] = true
+	end
+
+	local writesByUnit = {}
+	for path in pairs(tracker.writes) do
+		local parts = SplitPath(path)
+		if parts[1] == "UnitDefs" and parts[2] then
+			writesByUnit[parts[2]] = writesByUnit[parts[2]] or {}
+			writesByUnit[parts[2]][#writesByUnit[parts[2]] + 1] = path
+		end
+	end
+
+	local cloneNames = {}
+	local runtimeNames = {}
+
+	for unitName, paths in pairs(writesByUnit) do
+		if tracker.deleted[unitName] then
+			-- Team deletion means the unit is hidden from that team's build menus.
+		elseif tracker.created[unitName] then
+			cloneNames[unitName] = true
+		else
+			local allRuntime = true
+			for i = 1, #paths do
+				if not IsRuntimeSafeWrite(paths[i]) then
+					allRuntime = false
+					break
+				end
+			end
+			if allRuntime then
+				runtimeNames[unitName] = true
+			else
+				cloneNames[unitName] = true
+			end
+		end
 	end
 
 	local nameMap = {}
-	local changedNames = {}
-
-	for name in pairs(tracker.working) do
-		changedNames[#changedNames + 1] = name
+	for name in pairs(cloneNames) do
 		nameMap[string.lower(name)] = TeamName(slot, name)
 	end
 
-	table.sort(changedNames)
+	-- Runtime-only patches are carried through harmless customparams on the
+	-- original definition. They are interpreted only by game_team_tweak_runtime.
+	for unitName in pairs(runtimeNames) do
+		local base = UnitDefs[unitName]
+		local changed = tracker.working[unitName]
+		local entries = {}
 
-	for i = 1, #changedNames do
-		local sourceName = changedNames[i]
+		for _, path in ipairs(writesByUnit[unitName]) do
+			local parts = SplitPath(path)
+			if not IsBuildOptionsPath(parts) then
+				local field = string.lower(parts[3])
+				entries[#entries + 1] = {
+					field = field,
+					old = base and base[parts[3]],
+					new = changed and changed[parts[3]],
+				}
+			end
+		end
+
+		if #entries > 0 then
+			table.sort(entries, function(a, b) return a.field < b.field end)
+			SetCustomParam(
+				base,
+				"rg_team_runtime_patch_" .. slot,
+				EncodeRuntimePatch(entries)
+			)
+		end
+
+		local added, removed = BuildOptionDiff(
+			base and (base.buildoptions or base.buildOptions),
+			changed and (changed.buildoptions or changed.buildOptions)
+		)
+		if #added > 0 then
+			SetCustomParam(base, "rg_team_build_add_" .. slot, table.concat(added, " "))
+		end
+		if #removed > 0 then
+			SetCustomParam(base, "rg_team_build_remove_" .. slot, table.concat(removed, " "))
+		end
+	end
+
+	-- Team-scoped UnitDef deletion is build-menu hiding. Record removals on
+	-- every unchanged/runtime builder that exposes the deleted unit.
+	for deletedName in pairs(hiddenNames) do
+		for builderName, builderDef in pairs(UnitDefs) do
+			if not cloneNames[builderName] then
+				local options = builderDef.buildoptions or builderDef.buildOptions
+				local optionSet = ToNameSet(options)
+				if optionSet[deletedName] then
+					local key = "rg_team_build_remove_" .. slot
+					local existing = builderDef.customparams and builderDef.customparams[key]
+					local names = ToNameSet(existing and string.split(existing, " ") or {})
+					names[deletedName] = true
+					local list = SortedKeys(names)
+					SetCustomParam(builderDef, key, table.concat(list, " "))
+				end
+			end
+		end
+	end
+
+	local clonedCount = 0
+	for sourceName in pairs(cloneNames) do
 		local targetName = nameMap[string.lower(sourceName)]
 		local unitDef = DeepCopy(tracker.working[sourceName])
-
 		system.lowerkeys(unitDef)
 		unitDef.customparams = unitDef.customparams or {}
 		unitDef.customparams.rg_team_tweak_slot = slot
 		unitDef.customparams.rg_team_tweak_source = sourceName
 		unitDef.customparams.rg_team_tweak_created =
 			tracker.created[sourceName] and 1 or 0
-
-		RewriteKnownReferences(unitDef, nameMap)
-
+		RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 		UnitDefs[targetName] = unitDef
+		clonedCount = clonedCount + 1
 	end
 
 	Echo(
 		"Team", slot,
-		"materialized", #changedNames,
-		"UnitDefs"
+		"runtime=" .. tostring(#SortedKeys(runtimeNames)),
+		"cloned=" .. tostring(clonedCount),
+		"hidden=" .. tostring(#SortedKeys(hiddenNames))
 	)
 
 	return true, nameMap
