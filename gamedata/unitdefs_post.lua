@@ -217,7 +217,14 @@ local function enlargeSelectionVolumes()
 	end
 end
 
-local function preProcessUnitDefs()
+local function if Spring.GetModOptions().afus_supremacy then
+	local afusSupremacy = VFS.Include("gamedata/afus_supremacy.lua")
+	if afusSupremacy and afusSupremacy.Apply then
+		afusSupremacy.Apply()
+	end
+end
+
+preProcessUnitDefs()
 	enlargeSelectionVolumes()
 end
 
