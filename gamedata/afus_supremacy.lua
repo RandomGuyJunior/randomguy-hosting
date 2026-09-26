@@ -46,10 +46,6 @@ local function makeLauncher(model)
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
 		alwaysVisible = true,
-		customparams = {
-			afus_supremacy = 1,
-			afus_supremacy_role = "launcher",
-		},
 		damage = {
 			commanders = 3000,
 			default = 12800,
@@ -92,10 +88,6 @@ local function makeInterceptor(model)
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
 		alwaysVisible = true,
-		customparams = {
-			afus_supremacy = 1,
-			afus_supremacy_role = "interceptor",
-		},
 		damage = {
 			default = 1500,
 		},
@@ -137,7 +129,6 @@ function M.Apply(globalEnabled, teamOptions)
 				badtargetcategory = "ALL",
 			}
 
-			unitDef.customparams.afus_supremacy = 1
 		end
 	end
 end
