@@ -222,20 +222,13 @@ local function preProcessUnitDefs()
 
 	local modOptions = Spring.GetModOptions()
 	local teamOptions = VFS.Include("gamedata/team_options.lua")
-	local afusSupremacyEnabled = modOptions.afus_supremacy == true or modOptions.afus_supremacy == "1"
-	if not afusSupremacyEnabled then
-		for slot = 1, 8 do
-			if teamOptions.IsOptionEnabled(slot, "afus_supremacy") then
-				afusSupremacyEnabled = true
-				break
-			end
-		end
-	end
+	local afusSupremacyGlobal = teamOptions.GlobalEnabled("afus_supremacy")
+	local afusSupremacyTeamScoped = teamOptions.TeamFeatureActive("afus_supremacy")
 
-	if afusSupremacyEnabled then
+	if afusSupremacyGlobal or afusSupremacyTeamScoped then
 		local afusSupremacy = VFS.Include("gamedata/afus_supremacy.lua")
 		if afusSupremacy and afusSupremacy.Apply then
-			afusSupremacy.Apply()
+			afusSupremacy.Apply(afusSupremacyGlobal, teamOptions)
 		end
 	end
 end
