@@ -102,12 +102,22 @@ local function makeInterceptor(model)
 	}
 end
 
-function M.Apply()
+local function shouldApply(unitDef, globalEnabled, teamOptions)
+	if globalEnabled then
+		return true
+	end
+
+	local cp = unitDef.customparams or {}
+	local slot = tonumber(cp.rg_team_tweak_slot)
+	return slot ~= nil and teamOptions.TeamHasFeature(slot, "afus_supremacy")
+end
+
+function M.Apply(globalEnabled, teamOptions)
 	for name, unitDef in pairs(UnitDefs) do
 		local source = getSourceName(name, unitDef)
 		local projectileModel = AFUS_NAMES[source]
 
-		if projectileModel then
+		if projectileModel and shouldApply(unitDef, globalEnabled, teamOptions) then
 			unitDef.weapondefs = unitDef.weapondefs or {}
 			unitDef.weapons = unitDef.weapons or {}
 			unitDef.customparams = unitDef.customparams or {}
