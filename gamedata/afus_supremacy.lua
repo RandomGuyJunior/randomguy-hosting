@@ -41,7 +41,7 @@ local function makeLauncher(model)
 		tolerance = 10000,
 		tracks = true,
 		turnrate = 18000,
-		uptime = 0.4
+		uptime = 0.4,
 		weaponacceleration = 600,
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
