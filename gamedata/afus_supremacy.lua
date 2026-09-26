@@ -41,8 +41,8 @@ local function makeLauncher(model)
 		tolerance = 10000,
 		tracks = true,
 		turnrate = 18000,
-		weapontimer = 4,
-				weaponacceleration = 600,
+		weapontimer = 3,
+		weaponacceleration = 600,
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
 		customparams = {
@@ -86,8 +86,8 @@ local function makeInterceptor(model)
 		tolerance = 10000,
 		tracks = true,
 		turnrate = 18000,
-		weapontimer = 2,
-				weaponacceleration = 600,
+		weapontimer = 0.5,
+		weaponacceleration = 800,
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
 		customparams = {
