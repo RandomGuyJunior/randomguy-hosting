@@ -1,6 +1,13 @@
 local base = piece("base")
 local emit = piece("emit")
 
+local function consumeAFUS()
+	Sleep(1)
+	if Spring.ValidUnitID(unitID) and not Spring.GetUnitIsDead(unitID) then
+		Spring.DestroyUnit(unitID, false, true)
+	end
+end
+
 function script.Create()
 end
 
@@ -25,13 +32,7 @@ function script.AimWeapon1(heading, pitch)
 end
 
 function script.FireWeapon1()
-	return true
-end
-
-function script.Shot1()
-	if GG and GG.KamikazeLauncherInterceptors then
-		GG.KamikazeLauncherInterceptors.Consume(unitID)
-	end
+	StartThread(consumeAFUS)
 end
 
 function script.AimFromWeapon2()
@@ -47,11 +48,5 @@ function script.AimWeapon2(heading, pitch)
 end
 
 function script.FireWeapon2()
-	return true
-end
-
-function script.Shot2()
-	if GG and GG.KamikazeLauncherInterceptors then
-		GG.KamikazeLauncherInterceptors.Consume(unitID)
-	end
+	StartThread(consumeAFUS)
 end
