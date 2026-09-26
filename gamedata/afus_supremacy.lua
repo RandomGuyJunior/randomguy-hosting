@@ -84,9 +84,9 @@ local function makeInterceptor(model)
 		tracks = true,
 		turnrate = 60000,
 		weapontimer = 0.5,
-		weaponacceleration = 1500,
+		weaponacceleration = 2500,
 		weapontype = "StarburstLauncher",
-		weaponvelocity = 3000,
+		weaponvelocity = 3200,
 		alwaysVisible = true,
 		damage = {
 			default = 1500,
