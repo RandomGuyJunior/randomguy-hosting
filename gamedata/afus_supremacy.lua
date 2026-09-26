@@ -42,7 +42,7 @@ local function makeLauncher(model)
 		tracks = true,
 		turnrate = 18000,
 		weapontimer = 3.3,
-		weaponacceleration = 500,
+		weaponacceleration = 1000,
 		weapontype = "StarburstLauncher",
 		weaponvelocity = 1700,
 		alwaysVisible = true,
