@@ -41,9 +41,9 @@ local function makeLauncher(model)
 		tolerance = 10000,
 		tracks = true,
 		turnrate = 18000,
-		startvelocity = 700,
+		uptime = 0.4
 		weaponacceleration = 600,
-		weapontype = "MissileLauncher",
+		weapontype = "StarburstLauncher",
 		weaponvelocity = 2200,
 		customparams = {
 			afus_supremacy = 1,
