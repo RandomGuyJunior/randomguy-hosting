@@ -44,7 +44,7 @@ local function makeLauncher(model)
 		weapontimer = 3.3,
 		weaponacceleration = 1000,
 		weapontype = "StarburstLauncher",
-		weaponvelocity = 1700,
+		weaponvelocity = 1300,
 		alwaysVisible = true,
 		damage = {
 			commanders = 3000,
