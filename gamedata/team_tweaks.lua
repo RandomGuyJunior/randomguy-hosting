@@ -86,6 +86,7 @@ local function NewTracker(slot, originalUnitNames)
 		reads = {},
 		writes = {},
 		proxyCache = {},
+		commonNames = {},
 	}
 
 	local function PathKey(parts)
@@ -445,6 +446,12 @@ local function NewTracker(slot, originalUnitNames)
 		local line = #args == 1 and tostring(args[1]) or nil
 		if line == "tweakdefs_rename_get_ready" then
 			realSpring.Echo("tweakdefs_rename_slot:" .. tostring(slot))
+		elseif line then
+			local unitName, action, value =
+				line:match("^/%(([^/]+)/%-([^/]+)/%-(.-)/%)$")
+			if unitName and action == "prefix" and value == "[Common]" then
+				tracker.commonNames[string.lower(unitName)] = true
+			end
 		end
 		return realSpring.Echo(...)
 	end
@@ -805,6 +812,15 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 	local runtimeNames = {}
 	local createdNames = {}
 
+	local function CommonWriteIsIncidental(path)
+		local parts = SplitPath(path)
+		-- BaRandom initializes power from the unit's ordinary cost even for
+		-- rarity-0 units. BAR supplies the normal power later as part of its own
+		-- processing, so this bookkeeping write must not turn a Common unit into
+		-- a physical team clone.
+		return #parts == 3 and string.lower(parts[3]) == "power"
+	end
+
 	for unitName, paths in pairs(writesByUnit) do
 		if tracker.deleted[unitName] then
 			-- Team deletion means the unit is hidden from that team's build menus.
@@ -815,6 +831,28 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 			-- build-option access, so do not create an rg_tX_ copy unless another
 			-- team created the same logical names with different definitions.
 			createdNames[unitName] = true
+		elseif tracker.commonNames[string.lower(unitName)] then
+			local onlyIncidental = true
+			for i = 1, #paths do
+				if not CommonWriteIsIncidental(paths[i]) then
+					onlyIncidental = false
+					break
+				end
+			end
+			if not onlyIncidental then
+				local allRuntime = true
+				for i = 1, #paths do
+					if not IsRuntimeSafeWrite(paths[i]) then
+						allRuntime = false
+						break
+					end
+				end
+				if allRuntime then
+					runtimeNames[unitName] = true
+				else
+					cloneNames[unitName] = true
+				end
+			end
 		else
 			local allRuntime = true
 			for i = 1, #paths do
