@@ -46,6 +46,10 @@ local function TeamName(slot, original)
 	return "rg_t" .. tostring(slot) .. "_" .. SanitizeName(original)
 end
 
+local function SharedPresentationName(original)
+	return "rg_common_" .. SanitizeName(original)
+end
+
 local function ParseTweaksForSlot(slot)
 	local options = teamOptions.GetOptions(slot) or {}
 	local tweaks = {}
@@ -773,7 +777,7 @@ local function RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 	end
 end
 
-local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
+local function MaterializeSlot(slot, tracker, sharedCreatedDefs, sharedPresentationDefs)
 	local hiddenNames = {}
 	for name in pairs(tracker.deleted) do
 		hiddenNames[string.lower(name)] = true
@@ -844,16 +848,17 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 		end
 	end
 
-	-- A visible rename/description is itself a team-specific change. Even when
-	-- the tweak left every gameplay field untouched (BaRandom Common units), an
-	-- existing shared UnitDef needs a lightweight team clone or its label would
-	-- leak to every team using the vanilla definition.
+	-- Presentation-only variants (BaRandom rarity 0 / [Common]) do not need a
+	-- per-team physical UnitDef. If gameplay data is unchanged, every team with
+	-- the same presentation state can share one lightweight clone.
+	local sharedPresentationNames = {}
 	for lowerName in pairs(tracker.presentationNames) do
 		if not hiddenNames[lowerName]
 			and not tracker.created[lowerName]
 			and UnitDefs[lowerName]
+			and not writesByUnit[lowerName]
 		then
-			cloneNames[lowerName] = true
+			sharedPresentationNames[lowerName] = true
 			runtimeNames[lowerName] = nil
 		end
 	end
@@ -861,6 +866,9 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 	local nameMap = {}
 	for name in pairs(cloneNames) do
 		nameMap[string.lower(name)] = TeamName(slot, name)
+	end
+	for name in pairs(sharedPresentationNames) do
+		nameMap[string.lower(name)] = SharedPresentationName(name)
 	end
 
 	-- A newly created logical UnitDef keeps its original name and can be shared
@@ -1004,6 +1012,30 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 		end
 	end
 
+	local sharedPresentationCount = 0
+	local reusedPresentationCount = 0
+	for sourceName in pairs(sharedPresentationNames) do
+		local targetName = nameMap[string.lower(sourceName)]
+		if sharedPresentationDefs[string.lower(sourceName)] then
+			reusedPresentationCount = reusedPresentationCount + 1
+		else
+			local unitDef = NormalizedCopy(UnitDefs[sourceName])
+			unitDef.customparams = unitDef.customparams or {}
+			unitDef.customparams.rg_team_tweak_source = sourceName
+			unitDef.customparams.rg_team_tweak_shared_presentation = 1
+			if not unitDef.customparams.i18nfromunit then
+				local sourceCP = UnitDefs[sourceName]
+					and (UnitDefs[sourceName].customparams or UnitDefs[sourceName].customParams)
+				unitDef.customparams.i18nfromunit =
+					(sourceCP and sourceCP.i18nfromunit) or sourceName
+			end
+			RewriteKnownReferences(unitDef, nameMap, hiddenNames)
+			UnitDefs[targetName] = unitDef
+			sharedPresentationDefs[string.lower(sourceName)] = targetName
+			sharedPresentationCount = sharedPresentationCount + 1
+		end
+	end
+
 	local clonedCount = 0
 	for sourceName in pairs(cloneNames) do
 		local targetName = nameMap[string.lower(sourceName)]
@@ -1034,6 +1066,8 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 		"cloned=" .. tostring(clonedCount),
 		"created=" .. tostring(createdCount),
 		"reusedcreated=" .. tostring(reusedCreatedCount),
+		"sharedpresentation=" .. tostring(sharedPresentationCount),
+		"reusedpresentation=" .. tostring(reusedPresentationCount),
 		"createdconflict=" .. tostring(createdConflict),
 		"hidden=" .. tostring(#SortedKeys(hiddenNames)),
 		"maxthisunit0=" .. tostring(#SortedKeys(maxThisUnitHidden))
@@ -1046,6 +1080,7 @@ function M.Process()
 	local any = false
 	local originalUnitNames = {}
 	local sharedCreatedDefs = {}
+	local sharedPresentationDefs = {}
 
 	for name in pairs(UnitDefs) do
 		originalUnitNames[name] = true
@@ -1081,7 +1116,7 @@ function M.Process()
 
 			if not failed then
 				local materialized, materializeResult =
-					MaterializeSlot(slot, tracker, sharedCreatedDefs)
+					MaterializeSlot(slot, tracker, sharedCreatedDefs, sharedPresentationDefs)
 
 				if not materialized then
 					Echo(
