@@ -6,7 +6,7 @@ function widget:GetInfo()
         date = '2026-05-17',
         license = 'GNU GPL, v3 or later',
         layer = -999998,
-        version = 8,
+        version = 9,
         enabled = true,
     }
 end
@@ -269,10 +269,14 @@ local function buildUnitLookup()
         local cp = ud.customParams or {}
         local source = cp.rg_team_tweak_source
         local slot = tonumber(cp.rg_team_tweak_slot)
-        if source and slot then
+        if source then
             source = string.lower(source)
             clonesBySourceAndSlot[source] = clonesBySourceAndSlot[source] or {}
-            clonesBySourceAndSlot[source][slot] = ud
+            if slot then
+                clonesBySourceAndSlot[source][slot] = ud
+            elseif tonumber(cp.rg_team_tweak_shared_presentation) == 1 then
+                clonesBySourceAndSlot[source].sharedPresentation = ud
+            end
         end
     end
 
@@ -284,14 +288,14 @@ local function getTargetsForInstruction(unitName, slot, vanillaByName, clonesByS
 
     if slot then
         local bySlot = clonesBySourceAndSlot[key]
-        local clone = bySlot and bySlot[slot]
+        local clone = bySlot and (bySlot[slot] or bySlot.sharedPresentation)
         if clone then
             return { clone }
         end
 
-        -- Team-scoped rename blocks should normally have a presentation clone.
-        -- Fall back to vanilla only for newly-created/shared defs that have no
-        -- team clone at all.
+        -- Team-scoped rename blocks should normally have either a distinct
+        -- team clone or a shared presentation clone. Fall back to vanilla only
+        -- for newly-created/shared defs that have no clone at all.
         local vanilla = vanillaByName[key]
         if vanilla then
             return { vanilla }
