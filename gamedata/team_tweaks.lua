@@ -76,7 +76,7 @@ local function ParseTweaksForSlot(slot)
 	return tweaks
 end
 
-local function NewTracker(slot)
+local function NewTracker(slot, originalUnitNames)
 	local tracker = {
 		slot = slot,
 		working = {},
@@ -120,6 +120,8 @@ local function NewTracker(slot)
 				tracker.working[unitName] = DeepCopy(base)
 			else
 				tracker.working[unitName] = {}
+			end
+			if not originalUnitNames[unitName] then
 				tracker.created[unitName] = true
 			end
 		end
@@ -290,7 +292,7 @@ local function NewTracker(slot)
 				tracker.deleted[unitName] = true
 			else
 				tracker.working[unitName] = Materialize(value)
-				if UnitDefs[unitName] == nil then
+				if not originalUnitNames[unitName] then
 					tracker.created[unitName] = true
 				end
 				tracker.deleted[unitName] = nil
@@ -663,6 +665,40 @@ local function RewriteNameList(value, nameMap)
 	return table.concat(out, " ")
 end
 
+local function DeepEqual(a, b, seen)
+	if type(a) ~= type(b) then
+		return false
+	end
+	if type(a) ~= "table" then
+		return a == b
+	end
+
+	seen = seen or {}
+	seen[a] = seen[a] or {}
+	if seen[a][b] then
+		return true
+	end
+	seen[a][b] = true
+
+	for k, v in pairs(a) do
+		if not DeepEqual(v, b[k], seen) then
+			return false
+		end
+	end
+	for k in pairs(b) do
+		if a[k] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+local function NormalizedCopy(unitDef)
+	local copy = DeepCopy(unitDef)
+	system.lowerkeys(copy)
+	return copy
+end
+
 local function RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 	local cp = unitDef.customparams or unitDef.customParams
 	if cp and cp.evolution_target then
@@ -707,7 +743,7 @@ local function RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 	end
 end
 
-local function MaterializeSlot(slot, tracker)
+local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 	local hiddenNames = {}
 	for name in pairs(tracker.deleted) do
 		hiddenNames[string.lower(name)] = true
@@ -750,6 +786,7 @@ local function MaterializeSlot(slot, tracker)
 
 	local cloneNames = {}
 	local runtimeNames = {}
+	local createdNames = {}
 
 	for unitName, paths in pairs(writesByUnit) do
 		if tracker.deleted[unitName] then
@@ -757,7 +794,10 @@ local function MaterializeSlot(slot, tracker)
 		elseif maxThisUnitHidden[string.lower(unitName)] then
 			-- Explicit maxthisunit = 0 is also team-local build-menu hiding.
 		elseif tracker.created[unitName] then
-			cloneNames[unitName] = true
+			-- New UnitDefs are global definitions. Team specificity is enforced by
+			-- build-option access, so do not create an rg_tX_ copy unless another
+			-- team created the same logical names with different definitions.
+			createdNames[unitName] = true
 		else
 			local allRuntime = true
 			for i = 1, #paths do
@@ -777,6 +817,34 @@ local function MaterializeSlot(slot, tracker)
 	local nameMap = {}
 	for name in pairs(cloneNames) do
 		nameMap[string.lower(name)] = TeamName(slot, name)
+	end
+
+	-- A newly created logical UnitDef keeps its original name and can be shared
+	-- by every team selecting the same tweak. If any overlapping created
+	-- definition differs after team-specific reference rewriting, namespace the
+	-- whole created set for this slot so evolution/build/spawn chains stay
+	-- internally consistent.
+	local createdCandidates = {}
+	local createdConflict = false
+	for name in pairs(createdNames) do
+		local candidate = NormalizedCopy(tracker.working[name])
+		RewriteKnownReferences(candidate, nameMap, hiddenNames)
+		createdCandidates[name] = candidate
+		local shared = sharedCreatedDefs[string.lower(name)]
+		if shared and not DeepEqual(candidate, shared) then
+			createdConflict = true
+		end
+	end
+
+	if createdConflict then
+		for name in pairs(createdNames) do
+			nameMap[string.lower(name)] = TeamName(slot, name)
+		end
+		for name in pairs(createdNames) do
+			local candidate = NormalizedCopy(tracker.working[name])
+			RewriteKnownReferences(candidate, nameMap, hiddenNames)
+			createdCandidates[name] = candidate
+		end
 	end
 
 	-- Runtime-only patches are carried through harmless customparams on the
@@ -838,16 +906,50 @@ local function MaterializeSlot(slot, tracker)
 		end
 	end
 
+	local createdCount = 0
+	local reusedCreatedCount = 0
+	for sourceName in pairs(createdNames) do
+		local lowerName = string.lower(sourceName)
+		local targetName = nameMap[lowerName] or sourceName
+		local unitDef = createdCandidates[sourceName]
+
+		if createdConflict then
+			unitDef.customparams = unitDef.customparams or {}
+			unitDef.customparams.rg_team_tweak_slot = slot
+			unitDef.customparams.rg_team_tweak_source = sourceName
+			unitDef.customparams.rg_team_tweak_created = 1
+			UnitDefs[targetName] = unitDef
+			createdCount = createdCount + 1
+		elseif sharedCreatedDefs[lowerName] then
+			-- Same logical definition was already materialized by another team.
+			-- Reuse the canonical UnitDef; team access remains build-option scoped.
+			reusedCreatedCount = reusedCreatedCount + 1
+		else
+			UnitDefs[sourceName] = unitDef
+			sharedCreatedDefs[lowerName] = DeepCopy(unitDef)
+			createdCount = createdCount + 1
+		end
+	end
+
 	local clonedCount = 0
 	for sourceName in pairs(cloneNames) do
 		local targetName = nameMap[string.lower(sourceName)]
-		local unitDef = DeepCopy(tracker.working[sourceName])
-		system.lowerkeys(unitDef)
+		local unitDef = NormalizedCopy(tracker.working[sourceName])
 		unitDef.customparams = unitDef.customparams or {}
 		unitDef.customparams.rg_team_tweak_slot = slot
 		unitDef.customparams.rg_team_tweak_source = sourceName
-		unitDef.customparams.rg_team_tweak_created =
-			tracker.created[sourceName] and 1 or 0
+		unitDef.customparams.rg_team_tweak_created = 0
+
+		-- BAR localizes names/descriptions by the UnitDef key unless i18nfromunit
+		-- is present. Preserve any explicit tweak proxy, otherwise forward the
+		-- clone's visible identity to its original source UnitDef.
+		if not unitDef.customparams.i18nfromunit then
+			local sourceDef = UnitDefs[sourceName]
+			local sourceCP = sourceDef and (sourceDef.customparams or sourceDef.customParams)
+			unitDef.customparams.i18nfromunit =
+				(sourceCP and sourceCP.i18nfromunit) or sourceName
+		end
+
 		RewriteKnownReferences(unitDef, nameMap, hiddenNames)
 		UnitDefs[targetName] = unitDef
 		clonedCount = clonedCount + 1
@@ -857,6 +959,9 @@ local function MaterializeSlot(slot, tracker)
 		"Team", slot,
 		"runtime=" .. tostring(#SortedKeys(runtimeNames)),
 		"cloned=" .. tostring(clonedCount),
+		"created=" .. tostring(createdCount),
+		"reusedcreated=" .. tostring(reusedCreatedCount),
+		"createdconflict=" .. tostring(createdConflict),
 		"hidden=" .. tostring(#SortedKeys(hiddenNames)),
 		"maxthisunit0=" .. tostring(#SortedKeys(maxThisUnitHidden))
 	)
@@ -866,12 +971,18 @@ end
 
 function M.Process()
 	local any = false
+	local originalUnitNames = {}
+	local sharedCreatedDefs = {}
+
+	for name in pairs(UnitDefs) do
+		originalUnitNames[name] = true
+	end
 
 	for slot = 1, 8 do
 		local tweaks = ParseTweaksForSlot(slot)
 		if #tweaks > 0 then
 			any = true
-			local tracker = NewTracker(slot)
+			local tracker = NewTracker(slot, originalUnitNames)
 			local failed = false
 
 			for i = 1, #tweaks do
@@ -897,7 +1008,7 @@ function M.Process()
 
 			if not failed then
 				local materialized, materializeResult =
-					MaterializeSlot(slot, tracker)
+					MaterializeSlot(slot, tracker, sharedCreatedDefs)
 
 				if not materialized then
 					Echo(
