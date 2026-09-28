@@ -433,6 +433,36 @@ local function NewTracker(slot)
 
 	env._G = env
 
+	local function SafeRawGet(target, key)
+		if type(target) ~= "table" then
+			return nil
+		end
+
+		local meta = getmetatable(target)
+		if meta and meta.__teamTweakProxy then
+			return nil
+		end
+
+		return rawget(target, key)
+	end
+
+	local function SafeRawSet(target, key, value)
+		if type(target) ~= "table" then
+			error("rawset expects a table")
+		end
+
+		local meta = getmetatable(target)
+		if meta and meta.__teamTweakProxy then
+			error("rawset on team tweak UnitDefs proxy is not allowed")
+		end
+
+		rawset(target, key, value)
+		return target
+	end
+
+	env.rawget = SafeRawGet
+	env.rawset = SafeRawSet
+
 	setmetatable(env, {
 		__index = function(_, key)
 			if key == "rawset"
