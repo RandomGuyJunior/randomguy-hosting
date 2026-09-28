@@ -95,13 +95,16 @@ local function BuildCloneMaps()
 	end
 end
 
-local function ResolveUnitDefID(teamID, unitDefID)
-	local slot = teamIDToSlot[teamID]
-	if not slot then
+local function ResolveUnitDefIDForSlot(slot, unitDefID)
+	if not slot or not sourceToCloneBySlot[slot] then
 		return unitDefID
 	end
-
 	return sourceToCloneBySlot[slot][unitDefID] or unitDefID
+end
+
+local function ResolveUnitDefID(teamID, unitDefID)
+	local slot = teamIDToSlot[teamID]
+	return ResolveUnitDefIDForSlot(slot, unitDefID)
 end
 
 local function ResolveUnitName(teamID, unitName)
@@ -308,6 +311,39 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 
 	local cp = unitDef.customParams or {}
 
+	-- Reset team-specific source->clone replacements first. A builder transferred
+	-- between teams must drop the previous team's clone and regain its static
+	-- logical source before the receiving team's replacement is applied.
+	for candidateSlot = 1, 8 do
+		local replaceNames =
+			SplitNames(cp["rg_team_build_replace_" .. candidateSlot])
+		for i = 1, #replaceNames do
+			local sourceDef = UnitDefNames[replaceNames[i]]
+			if sourceDef then
+				local sourceID = sourceDef.id
+				local candidateCloneID =
+					ResolveUnitDefIDForSlot(candidateSlot, sourceID)
+				if candidateCloneID ~= sourceID then
+					GG.DynamicBuildOptions.RemoveFromUnit(
+						unitID,
+						candidateCloneID
+					)
+				end
+
+				local static = false
+				for _, builtDefID in ipairs(unitDef.buildOptions or {}) do
+					if builtDefID == sourceID then
+						static = true
+						break
+					end
+				end
+				if static then
+					GG.DynamicBuildOptions.AddToUnit(unitID, sourceID)
+				end
+			end
+		end
+	end
+
 	-- Reset every team-specific build-option delta first. This is required
 	-- when a builder changes owners: additions from the previous team must
 	-- disappear and removals must return to the UnitDef baseline.
@@ -336,6 +372,20 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 				if static then
 					GG.DynamicBuildOptions.AddToUnit(unitID, defID)
 				end
+			end
+		end
+	end
+
+	local replaceNames =
+		SplitNames(cp["rg_team_build_replace_" .. slot])
+	for i = 1, #replaceNames do
+		local sourceDef = UnitDefNames[replaceNames[i]]
+		if sourceDef then
+			local sourceID = sourceDef.id
+			local cloneID = ResolveUnitDefIDForSlot(slot, sourceID)
+			if cloneID ~= sourceID then
+				GG.DynamicBuildOptions.RemoveFromUnit(unitID, sourceID)
+				GG.DynamicBuildOptions.AddToUnit(unitID, cloneID)
 			end
 		end
 	end
