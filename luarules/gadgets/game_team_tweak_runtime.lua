@@ -36,6 +36,7 @@ local spSetUnitMoveTypeData = Spring.SetUnitMoveTypeData
 local teamIDToSlot = {}
 local sourceToCloneBySlot = {}
 local cloneToSourceBySlot = {}
+local createdByNameBySlot = {}
 
 local function Echo(...)
 	Spring.Echo("[Team Tweaks]", ...)
@@ -70,6 +71,7 @@ local function BuildCloneMaps()
 	for slot = 1, 8 do
 		sourceToCloneBySlot[slot] = {}
 		cloneToSourceBySlot[slot] = {}
+		createdByNameBySlot[slot] = {}
 	end
 
 	for unitDefID, unitDef in pairs(UnitDefs) do
@@ -83,9 +85,11 @@ local function BuildCloneMaps()
 				sourceToCloneBySlot[slot][sourceDef.id] = unitDefID
 				cloneToSourceBySlot[slot][unitDefID] = sourceDef.id
 			else
-				-- Newly-created tweak units have no source UnitDef. They are still
-				-- reachable through rewritten buildoptions/evolution/spawner refs.
-				Echo("Team", slot, "new UnitDef", unitDef.name or unitDefID)
+				-- Newly-created tweak units have no global source UnitDef. Remember
+				-- their logical tweak name so runtime build-option deltas can resolve
+				-- e.g. "lv0" to the physical team-scoped "rg_t1_lv0" UnitDef.
+				createdByNameBySlot[slot][string.lower(source)] = unitDefID
+				Echo("Team", slot, "new UnitDef", source, "->", unitDef.name or unitDefID)
 			end
 		end
 	end
@@ -140,9 +144,24 @@ local function SplitNames(text)
 	return out
 end
 
-local function ResolveNameToDefID(name)
+local function ResolveNameToDefID(teamID, name)
+	name = string.lower(name)
+
+	local slot = teamIDToSlot[teamID]
+	if slot then
+		local created = createdByNameBySlot[slot]
+			and createdByNameBySlot[slot][name]
+		if created then
+			return created
+		end
+	end
+
 	local def = UnitDefNames[name]
-	return def and def.id
+	if not def then
+		return nil
+	end
+
+	return ResolveUnitDefID(teamID, def.id)
 end
 
 local function ApplyRuntimePatch(unitID, unitDefID, teamID)
@@ -296,7 +315,7 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 		local candidateAdds =
 			SplitNames(cp["rg_team_build_add_" .. candidateSlot])
 		for i = 1, #candidateAdds do
-			local defID = ResolveNameToDefID(candidateAdds[i])
+			local defID = ResolveNameToDefID(teamID, candidateAdds[i])
 			if defID then
 				GG.DynamicBuildOptions.RemoveFromUnit(unitID, defID)
 			end
@@ -305,7 +324,7 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 		local candidateRemoves =
 			SplitNames(cp["rg_team_build_remove_" .. candidateSlot])
 		for i = 1, #candidateRemoves do
-			local defID = ResolveNameToDefID(candidateRemoves[i])
+			local defID = ResolveNameToDefID(teamID, candidateRemoves[i])
 			if defID then
 				local static = false
 				for _, builtDefID in ipairs(unitDef.buildOptions or {}) do
@@ -331,10 +350,11 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 
 	local addNames = SplitNames(cp["rg_team_build_add_" .. slot])
 	for i = 1, #addNames do
-		local defID = ResolveNameToDefID(addNames[i])
+		local defID = ResolveNameToDefID(teamID, addNames[i])
 		if defID then
-			defID = ResolveUnitDefID(teamID, defID)
 			GG.DynamicBuildOptions.AddToUnit(unitID, defID)
+		else
+			Echo("Unable to resolve Team", slot, "buildoption", addNames[i])
 		end
 	end
 end
