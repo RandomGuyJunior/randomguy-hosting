@@ -237,7 +237,14 @@ local function createScavengerUnitDefs()
 	local customScavDefs = VFS.Include("gamedata/scavengers/unitdef_changes.lua")
 
 	for name, unitDef in pairs(UnitDefs) do
-		if not string.find(name, "_scav") and not string.find(name, "critter") and not string.find(name, "raptor") then
+		local cp = unitDef.customparams
+		local isTeamTweakClone = cp and cp.rg_team_tweak_slot
+		if
+			not isTeamTweakClone
+			and not string.find(name, "_scav")
+			and not string.find(name, "critter")
+			and not string.find(name, "raptor")
+		then
 			local scavName = name .. "_scav"
 			if customScavDefs[name] ~= nil then
 				scavengerUnitDefs[scavName] = tableMergeSpecial(unitDef, customScavDefs[name])
