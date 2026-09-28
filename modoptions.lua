@@ -1146,7 +1146,7 @@ local options = {
 	{
 		key = "team1_options",
 		name = "Team 1 Options",
-		desc = "Modoptions or tweaks applied only to Team 1",
+		desc = "Modoptions or tweaks applied only to Team 1. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1155,7 +1155,7 @@ local options = {
 	{
 		key = "team2_options",
 		name = "Team 2 Options",
-		desc = "Modoptions or tweaks applied only to Team 2",
+		desc = "Modoptions or tweaks applied only to Team 2. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1164,7 +1164,7 @@ local options = {
 	{
 		key = "team3_options",
 		name = "Team 3 Options",
-		desc = "Modoptions or tweaks applied only to Team 3",
+		desc = "Modoptions or tweaks applied only to Team 3. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1173,7 +1173,7 @@ local options = {
 	{
 		key = "team4_options",
 		name = "Team 4 Options",
-		desc = "Modoptions or tweaks applied only to Team 4",
+		desc = "Modoptions or tweaks applied only to Team 4. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1182,7 +1182,7 @@ local options = {
 	{
 		key = "team5_options",
 		name = "Team 5 Options",
-		desc = "Modoptions or tweaks applied only to Team 5",
+		desc = "Modoptions or tweaks applied only to Team 5. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1191,7 +1191,7 @@ local options = {
 	{
 		key = "team6_options",
 		name = "Team 6 Options",
-		desc = "Modoptions or tweaks applied only to Team 6",
+		desc = "Modoptions or tweaks applied only to Team 6. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1200,7 +1200,7 @@ local options = {
 	{
 		key = "team7_options",
 		name = "Team 7 Options",
-		desc = "Modoptions or tweaks applied only to Team 7",
+		desc = "Modoptions or tweaks applied only to Team 7. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
@@ -1209,7 +1209,7 @@ local options = {
 	{
 		key = "team8_options",
 		name = "Team 8 Options",
-		desc = "Modoptions or tweaks applied only to Team 8",
+		desc = "Modoptions or tweaks applied only to Team 8. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
 		def = "",
