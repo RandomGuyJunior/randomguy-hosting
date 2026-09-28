@@ -887,6 +887,35 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 		end
 	end
 
+	-- If a target UnitDef was structurally cloned for this slot, every
+	-- unchanged/runtime builder that can build the logical source must route that
+	-- command to the team clone as well. Otherwise a Common/unmodified factory
+	-- would keep producing vanilla units while only cloned factories produced
+	-- randomized team variants.
+	for builderName, builderDef in pairs(UnitDefs) do
+		if not cloneNames[builderName] then
+			local options = builderDef.buildoptions or builderDef.buildOptions
+			if type(options) == "table" then
+				local replacements = {}
+				for _, optionName in pairs(options) do
+					if type(optionName) == "string"
+						and nameMap[string.lower(optionName)]
+					then
+						replacements[string.lower(optionName)] = true
+					end
+				end
+
+				if next(replacements) then
+					SetCustomParam(
+						builderDef,
+						"rg_team_build_replace_" .. slot,
+						table.concat(SortedKeys(replacements), " ")
+					)
+				end
+			end
+		end
+	end
+
 	-- Team-scoped UnitDef deletion is build-menu hiding. Record removals on
 	-- every unchanged/runtime builder that exposes the deleted unit.
 	for deletedName in pairs(hiddenNames) do
