@@ -506,7 +506,7 @@ local function ParseOptionString(input)
 		return result
 	end
 
-	for line in string.gmatch(input, "[^\r\n]+") do
+	for line in string.gmatch(input, "[^;]+") do
 		local key, value = string.match(
 			line,
 			"^%s*([^=]+)%s*=%s*(.-)%s*$"
