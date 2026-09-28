@@ -342,7 +342,7 @@ local function ApplyBuildOptionPatch(unitID, unitDefID, teamID)
 
 	local removeNames = SplitNames(cp["rg_team_build_remove_" .. slot])
 	for i = 1, #removeNames do
-		local defID = ResolveNameToDefID(removeNames[i])
+		local defID = ResolveNameToDefID(teamID, removeNames[i])
 		if defID then
 			GG.DynamicBuildOptions.RemoveFromUnit(unitID, defID)
 		end
