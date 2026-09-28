@@ -85,6 +85,7 @@ local function NewTracker(slot, originalUnitNames)
 		reads = {},
 		writes = {},
 		proxyCache = {},
+		presentationNames = {},
 	}
 
 	local function PathKey(parts)
@@ -432,6 +433,35 @@ local function NewTracker(slot, originalUnitNames)
 		table = safeTable,
 		_G = false,
 	}
+
+	-- Team tweakdefs such as BaRandom communicate presentation changes to a
+	-- LuaUI bridge through Spring.Echo rename blocks. Capture those instructions
+	-- here so presentation-only changes (for example [Common]) still materialize
+	-- a team-specific UnitDef, and annotate each block with the real team slot.
+	local realSpring = Spring
+	local springProxy = {}
+	setmetatable(springProxy, { __index = realSpring })
+	springProxy.Echo = function(...)
+		local args = { ... }
+		local line = #args == 1 and tostring(args[1]) or nil
+
+		if line == "tweakdefs_rename_get_ready" then
+			realSpring.Echo("tweakdefs_rename_slot:" .. tostring(slot))
+		elseif line then
+			local unitName, action = line:match("^/%(([^/]+)/%-([^/]+)/%-.*/%)$")
+			if unitName and (
+				action == "rename"
+				or action == "prefix"
+				or action == "desc_prefix"
+				or action == "desc_change"
+			) then
+				tracker.presentationNames[string.lower(unitName)] = true
+			end
+		end
+
+		return realSpring.Echo(...)
+	end
+	env.Spring = springProxy
 
 	env._G = env
 
@@ -814,6 +844,20 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 		end
 	end
 
+	-- A visible rename/description is itself a team-specific change. Even when
+	-- the tweak left every gameplay field untouched (BaRandom Common units), an
+	-- existing shared UnitDef needs a lightweight team clone or its label would
+	-- leak to every team using the vanilla definition.
+	for lowerName in pairs(tracker.presentationNames) do
+		if not hiddenNames[lowerName]
+			and not tracker.created[lowerName]
+			and UnitDefs[lowerName]
+		then
+			cloneNames[lowerName] = true
+			runtimeNames[lowerName] = nil
+		end
+	end
+
 	local nameMap = {}
 	for name in pairs(cloneNames) do
 		nameMap[string.lower(name)] = TeamName(slot, name)
@@ -963,7 +1007,7 @@ local function MaterializeSlot(slot, tracker, sharedCreatedDefs)
 	local clonedCount = 0
 	for sourceName in pairs(cloneNames) do
 		local targetName = nameMap[string.lower(sourceName)]
-		local unitDef = NormalizedCopy(tracker.working[sourceName])
+		local unitDef = NormalizedCopy(tracker.working[sourceName] or UnitDefs[sourceName])
 		unitDef.customparams = unitDef.customparams or {}
 		unitDef.customparams.rg_team_tweak_slot = slot
 		unitDef.customparams.rg_team_tweak_source = sourceName
