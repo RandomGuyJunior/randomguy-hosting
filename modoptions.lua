@@ -1149,6 +1149,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 1. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1158,6 +1159,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 2. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1167,6 +1169,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 3. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1176,6 +1179,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 4. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1185,6 +1189,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 5. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1194,6 +1199,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 6. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1203,6 +1209,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 7. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
@@ -1212,6 +1219,7 @@ local options = {
 		desc = "Modoptions or tweaks applied only to Team 8. Write each value after = and separate multiple parameters with ;. Example: scavunitsforplayers=1;multiplier_buildpower=10",
 		type = "string",
 		section = "options_extra",
+		maxlen = 32768,
 		def = "",
 	},
 
