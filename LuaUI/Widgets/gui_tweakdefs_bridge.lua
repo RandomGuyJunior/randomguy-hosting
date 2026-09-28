@@ -6,7 +6,7 @@ function widget:GetInfo()
         date = '2026-05-17',
         license = 'GNU GPL, v3 or later',
         layer = -999998,
-        version = 7,
+        version = 8,
         enabled = true,
     }
 end
@@ -22,6 +22,7 @@ local MAX_MARKER_LINE_LENGTH = 200
 local START_MARKER = "tweakdefs_rename_get_ready"
 local END_MARKER = "tweakdefs_rename_end"
 local COUNT_PATTERN = "^tweakdefs_rename_block_count:(%d+)$"
+local SLOT_PATTERN = "^tweakdefs_rename_slot:(%d+)$"
 
 local instructions = {}
 
@@ -97,17 +98,26 @@ local function collectBlocksAndCounts(lines)
     local blocks = {}
     local counts = {}
     local currentBlock = nil
+    local pendingSlot = nil
 
     for _, entry in ipairs(lines) do
         local line = entry.text
+
+        local payload = getInfologPayload(line)
+        local slot = payload and string.match(payload, SLOT_PATTERN)
+        if slot then
+            pendingSlot = tonumber(slot)
+        end
 
         if isMarkerLine(line, START_MARKER) then
             currentBlock = {
                 startPos = entry.pos,
                 endPos = entry.endPos,
                 complete = false,
+                slot = pendingSlot,
                 lines = {},
             }
+            pendingSlot = nil
         elseif currentBlock and isMarkerLine(line, END_MARKER) then
             currentBlock.endPos = entry.endPos
             currentBlock.complete = true
@@ -229,7 +239,7 @@ local function parseInstructionsFromBlocks(blocks)
             local payload = getInfologPayload(line)
             local w1, w2, w3 = string.match(payload or "", pattern)
             if w2 == "rename" or w2 == "prefix" or w2 == "desc_prefix" or w2 == "desc_change" then
-                parsed[#parsed + 1] = { w1, w2, w3 }
+                parsed[#parsed + 1] = { w1, w2, w3, slot = block.slot }
             end
         end
     end
@@ -249,54 +259,68 @@ end
 
 local function buildUnitLookup()
     local vanillaByName = {}
-    local clonesBySource = {}
+    local clonesBySourceAndSlot = {}
 
     for _, ud in pairs(UnitDefs) do
         if ud.name then
-            vanillaByName[ud.name] = ud
+            vanillaByName[string.lower(ud.name)] = ud
         end
 
         local cp = ud.customParams or {}
         local source = cp.rg_team_tweak_source
-        if source then
+        local slot = tonumber(cp.rg_team_tweak_slot)
+        if source and slot then
             source = string.lower(source)
-            clonesBySource[source] = clonesBySource[source] or {}
-            clonesBySource[source][#clonesBySource[source] + 1] = ud
+            clonesBySourceAndSlot[source] = clonesBySourceAndSlot[source] or {}
+            clonesBySourceAndSlot[source][slot] = ud
         end
     end
 
-    return vanillaByName, clonesBySource
+    return vanillaByName, clonesBySourceAndSlot
 end
 
-local function getTargetsForInstruction(unitName, vanillaByName, clonesBySource)
+local function getTargetsForInstruction(unitName, slot, vanillaByName, clonesBySourceAndSlot)
     local key = string.lower(unitName)
-    local clones = clonesBySource[key]
 
-    -- Team-scoped tweak copies receive the rename instead of the shared
-    -- vanilla UnitDef. This prevents Team 1's randomized name/description
-    -- from leaking onto teams that still use the original unit.
-    if clones and #clones > 0 then
-        return clones
+    if slot then
+        local bySlot = clonesBySourceAndSlot[key]
+        local clone = bySlot and bySlot[slot]
+        if clone then
+            return { clone }
+        end
+
+        -- Team-scoped rename blocks should normally have a presentation clone.
+        -- Fall back to vanilla only for newly-created/shared defs that have no
+        -- team clone at all.
+        local vanilla = vanillaByName[key]
+        if vanilla then
+            return { vanilla }
+        end
+        return {}
     end
 
-    local vanilla = vanillaByName[unitName] or vanillaByName[key]
+    -- Legacy/global tweakdefs have no slot marker and keep the original bridge
+    -- behavior: patch the shared vanilla definition.
+    local vanilla = vanillaByName[key]
     if vanilla then
         return { vanilla }
     end
-
     return {}
 end
 
-local function addToGroup(groups, unitName)
-    local group = groups[unitName]
+local function addToGroup(groups, unitName, slot)
+    local key = tostring(slot or "global") .. "|" .. string.lower(unitName)
+    local group = groups[key]
     if not group then
         group = {
+            unitName = unitName,
+            slot = slot,
             namePrefixes = {},
             descPrefixes = {},
             renameCount = 0,
             descChangeCount = 0,
         }
-        groups[unitName] = group
+        groups[key] = group
     end
     return group
 end
@@ -308,7 +332,7 @@ local function buildInstructionGroups()
         local unitName = entry[1]
         local action = entry[2]
         local value = entry[3]
-        local group = addToGroup(groups, unitName)
+        local group = addToGroup(groups, unitName, entry.slot)
 
         if action == "rename" then
             group.rename = value
@@ -349,11 +373,17 @@ local function patchNames()
         return
     end
 
-    local vanillaByName, clonesBySource = buildUnitLookup()
+    local vanillaByName, clonesBySourceAndSlot = buildUnitLookup()
     local groups = buildInstructionGroups()
 
-    for unitName, group in pairs(groups) do
-        local targets = getTargetsForInstruction(unitName, vanillaByName, clonesBySource)
+    for _, group in pairs(groups) do
+        local unitName = group.unitName
+        local targets = getTargetsForInstruction(
+            unitName,
+            group.slot,
+            vanillaByName,
+            clonesBySourceAndSlot
+        )
 
         if #targets > 0 then
             if group.renameCount > 1 then
