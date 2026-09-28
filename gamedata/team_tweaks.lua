@@ -722,12 +722,40 @@ local function MaterializeSlot(slot, tracker)
 		end
 	end
 
+	-- maxthisunit = 0 in a team tweak is treated as team-local removal.
+	-- Do not create a disabled clone merely to represent that state: hide the
+	-- logical unit from every builder for this team instead.
+	local maxThisUnitHidden = {}
+	for unitName, paths in pairs(writesByUnit) do
+		local explicitlySetZero = false
+		for i = 1, #paths do
+			local parts = SplitPath(paths[i])
+			if #parts == 3
+				and string.lower(parts[3]) == "maxthisunit"
+			then
+				local changed = tracker.working[unitName]
+				if changed and tonumber(changed.maxthisunit or changed.maxThisUnit) == 0 then
+					explicitlySetZero = true
+					break
+				end
+			end
+		end
+
+		if explicitlySetZero then
+			local lowerName = string.lower(unitName)
+			maxThisUnitHidden[lowerName] = true
+			hiddenNames[lowerName] = true
+		end
+	end
+
 	local cloneNames = {}
 	local runtimeNames = {}
 
 	for unitName, paths in pairs(writesByUnit) do
 		if tracker.deleted[unitName] then
 			-- Team deletion means the unit is hidden from that team's build menus.
+		elseif maxThisUnitHidden[string.lower(unitName)] then
+			-- Explicit maxthisunit = 0 is also team-local build-menu hiding.
 		elseif tracker.created[unitName] then
 			cloneNames[unitName] = true
 		else
@@ -829,7 +857,8 @@ local function MaterializeSlot(slot, tracker)
 		"Team", slot,
 		"runtime=" .. tostring(#SortedKeys(runtimeNames)),
 		"cloned=" .. tostring(clonedCount),
-		"hidden=" .. tostring(#SortedKeys(hiddenNames))
+		"hidden=" .. tostring(#SortedKeys(hiddenNames)),
+		"maxthisunit0=" .. tostring(#SortedKeys(maxThisUnitHidden))
 	)
 
 	return true, nameMap
