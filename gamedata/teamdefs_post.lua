@@ -44,9 +44,9 @@ local function ParseOptionString(input)
 		return result
 	end
 
-	for line in string.gmatch(input, "[^\r\n]+") do
+	for parameter in string.gmatch(input, "[^;]+") do
 		local key, value = string.match(
-			line,
+			parameter,
 			"^%s*([^=]+)%s*=%s*(.-)%s*$"
 		)
 
