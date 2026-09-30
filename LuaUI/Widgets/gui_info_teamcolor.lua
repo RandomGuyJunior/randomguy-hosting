@@ -2482,6 +2482,7 @@ end
 
 local function drawUnitInfo()
 	tracy.ZoneBeginN("W:Info:DrawUnitInfo")
+	local displayTeamID = displayUnitID and Spring.GetUnitTeam(displayUnitID) or Spring.GetLocalTeamID()
 	local fontSize = (height * vsy * 0.123) * (0.94 - ((1 - math.max(1.05, ui_scale)) * 0.4))
 
 	local iconSize = math.floor(fontSize * 4.4)
@@ -2506,7 +2507,7 @@ local function drawUnitInfo()
 			0.03,
 			nil,
 			nil,
-			"#" .. displayUnitDefID,
+			NativeTeamColorTexture(displayUnitDefID, displayTeamID),
 			(unitDefInfo[displayUnitDefID].icontype and ":l:" .. unitDefInfo[displayUnitDefID].icontype or nil),
 			groups[unitGroup[displayUnitDefID]],
 			{ unitDefInfo[displayUnitDefID].metalCost, unitDefInfo[displayUnitDefID].energyCost }
@@ -2986,7 +2987,10 @@ local function drawUnitInfo()
 							0.1,
 							nil,
 							nil,
-							"#" .. uDefID,
+							NativeTeamColorTexture(
+							uDefID,
+							units[cellID] and Spring.GetUnitTeam(units[cellID]) or displayTeamID
+						),
 							(unitDefInfo[uDefID].icontype and ":l:" .. unitDefInfo[uDefID].icontype or nil),
 							groups[unitGroup[uDefID]],
 							{ unitDefInfo[uDefID].metalCost, unitDefInfo[uDefID].energyCost }
@@ -3798,7 +3802,11 @@ function widget:DrawScreen()
 	then
 		tracy.ZoneBeginN("W:Info:DisplayUnitpicWarmup")
 		warmedDisplayUnitpicThisFrame = true
-		if glTexture("#" .. displayUnitDefID) then
+		local warmTexture = NativeTeamColorTexture(
+			displayUnitDefID,
+			displayUnitID and Spring.GetUnitTeam(displayUnitID) or Spring.GetLocalTeamID()
+		)
+		if glTexture(warmTexture) then
 			selectionUnitpicWarm.warmed[displayUnitDefID] = true
 		end
 		glTexture(false)
