@@ -913,7 +913,7 @@ end
 -- file that none of these names (TEAMCOLOR_RECOLOR_*, teamColorRecolor*,
 -- rgbToHue, DrawTeamColorRecolor) were already in use here.
 
-TEAMCOLOR_RECOLOR_ENABLED = true -- flip to false to disable without deleting any code
+TEAMCOLOR_RECOLOR_ENABLED = false -- flip to false to disable without deleting any code
 
 -- TEMP DIAGNOSTIC (2026-09-28): flip to true to visualize which pixels the
 -- shader's hue/saturation gate is actually matching on a live icon, instead
@@ -2033,12 +2033,19 @@ end
 local killCountCache = {}
 local killCountCacheTime = 0
 
+local function NativeTeamColorTexture(unitDefID, teamID)
+	local api = WG.TeamColorUnitPics
+	return (api and api.GetTexture(unitDefID, teamID or Spring.GetLocalTeamID())) or ("#" .. unitDefID)
+end
+
 local function drawSelectionCell(cellID, uDefID, usedZoom, highlightColor)
 	tracy.ZoneBeginN("W:Info:DrawSelection:Cell")
 	if not usedZoom then
 		usedZoom = defaultCellZoom
 	end
-	local unitTexture = "#" .. uDefID
+	local selectedForDef = selUnitsSorted and selUnitsSorted[uDefID]
+	local selectedTeam = selectedForDef and selectedForDef[1] and Spring.GetUnitTeam(selectedForDef[1])
+	local unitTexture = NativeTeamColorTexture(uDefID, selectedTeam)
 	if not selectionUnitpicWarm.warmed[uDefID] then
 		tracy.ZoneBeginN("W:Info:DrawSelection:Cell:TextureWarmFallback")
 		if glTexture(unitTexture) then
