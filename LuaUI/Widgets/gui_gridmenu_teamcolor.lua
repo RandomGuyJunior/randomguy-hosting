@@ -144,6 +144,7 @@ local isSpec
 local myTeamID
 local startDefID
 
+local teamColorPortraitRevision = -1
 local function NativeTeamColorTexture(unitDefID)
 	local api = WG.TeamColorUnitPics
 	return (api and api.GetTexture(unitDefID, myTeamID)) or ("#" .. unitDefID)
@@ -2663,6 +2664,15 @@ end
 -- without having actually updated the internal state of the factory. So they
 -- only schedule a resync instead of syncing state.
 function widget:Update(dt)
+	local tcApi = WG.TeamColorUnitPics
+	if tcApi and tcApi.GetRevision then
+		local rev = tcApi.GetRevision()
+		if rev ~= teamColorPortraitRevision then
+			teamColorPortraitRevision = rev
+			redraw = true
+		end
+	end
+
 	sec = sec + dt
 	if sec > 0.33 then
 		sec = 0
