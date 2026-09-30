@@ -143,11 +143,24 @@ local modKeyMultiplier = {
 local isSpec
 local myTeamID
 local startDefID
+local activeBuilder, activeBuilderID, builderIsFactory
 
 local teamColorPortraitRevision = -1
-local function NativeTeamColorTexture(unitDefID)
+
+local function CurrentPortraitTeamID()
+	if activeBuilderID then
+		local teamID = Spring.GetUnitTeam(activeBuilderID)
+		if teamID ~= nil then
+			return teamID
+		end
+	end
+	return myTeamID or Spring.GetLocalTeamID()
+end
+
+local function NativeTeamColorTexture(unitDefID, teamID)
 	local api = WG.TeamColorUnitPics
-	return (api and api.GetTexture(unitDefID, myTeamID)) or ("#" .. unitDefID)
+	teamID = teamID or CurrentPortraitTeamID()
+	return (api and api.GetTexture(unitDefID, teamID)) or ("#" .. unitDefID)
 end
 
 -- Configurable values
@@ -171,7 +184,6 @@ local currentlyBuildingRectID
 local currentCategory
 local labBuildModeActive = false
 
-local activeBuilder, activeBuilderID, builderIsFactory
 local buildmenuShows = false
 local hoveredRect = false
 
@@ -961,12 +973,17 @@ end
 
 local function updateBuilders()
 	local builderTypes = 0
+	local selectedUnitsSorted = spGetSelectedUnitsSorted()
 
 	for unitDefID, count in pairsByKeys(selectedBuilders) do
 		builderTypes = builderTypes + 1
 
 		builderRects[builderTypes].opts.uDefID = unitDefID
 		builderRects[builderTypes].opts.count = count
+		local ids = selectedUnitsSorted[unitDefID]
+		local representativeID = ids and ids[1]
+		builderRects[builderTypes].opts.teamID =
+			representativeID and Spring.GetUnitTeam(representativeID) or CurrentPortraitTeamID()
 
 		if builderTypes == maxBuilderRects then
 			break
@@ -3435,7 +3452,7 @@ local function drawBuilder(rect)
 		zoom,
 		nil,
 		math_max(0.1, highlightOpacity or 0.1),
-		NativeTeamColorTexture(unitDefID),
+		NativeTeamColorTexture(unitDefID, rect.opts.teamID),
 		nil,
 		nil,
 		nil,
