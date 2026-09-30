@@ -2033,6 +2033,7 @@ end
 local killCountCache = {}
 local killCountCacheTime = 0
 
+local teamColorPortraitRevision = -1
 local function NativeTeamColorTexture(unitDefID, teamID)
 	local api = WG.TeamColorUnitPics
 	return (api and api.GetTexture(unitDefID, teamID or Spring.GetLocalTeamID())) or ("#" .. unitDefID)
