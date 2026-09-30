@@ -144,6 +144,11 @@ local isSpec
 local myTeamID
 local startDefID
 
+local function NativeTeamColorTexture(unitDefID)
+	local api = WG.TeamColorUnitPics
+	return (api and api.GetTexture(unitDefID, myTeamID)) or ("#" .. unitDefID)
+end
+
 -- Configurable values
 local stickToBottom = false
 local alwaysReturn = false
@@ -1476,7 +1481,7 @@ end
 -- another widget's globals; it only has to avoid names already used
 -- elsewhere in THIS file, confirmed via grep against upstream before adding.
 
-TEAMCOLOR_RECOLOR_ENABLED = true -- flip to false to disable without deleting any code
+TEAMCOLOR_RECOLOR_ENABLED = false -- flip to false to disable without deleting any code
 
 -- Armada: default cyan-blue trim.
 TEAMCOLOR_RECOLOR_HUE_MIN_ARM = 0.50 -- ~180 degrees
@@ -2161,7 +2166,7 @@ function widget:Initialize()
 	-- section further up for the actual GLSL/rationale. Fails safe: leaves
 	-- teamColorRecolorShader nil (DrawTeamColorRecolor then no-ops) if
 	-- shaders aren't supported or this one fails to compile.
-	if gl.LuaShader then
+	if TEAMCOLOR_RECOLOR_ENABLED and gl.LuaShader then
 		teamColorRecolorShader = gl.LuaShader({
 			vertex = teamColorRecolorVertexShader,
 			fragment = teamColorRecolorFragmentShader,
@@ -2893,7 +2898,7 @@ local function drawHighlights()
 			local brighten = 0.10 + 0.22 * pulse
 			gl.Blending(GL_SRC_ALPHA, GL_ONE)
 			gl.Color(r * brighten, g * brighten, b * brighten, 1)
-			gl.Texture("#" .. uDefID)
+			gl.Texture(NativeTeamColorTexture(uDefID))
 			UiUnit(x1, y1, x2, y2, cornerSize, 1, 1, 1, 1, defaultCellZoom)
 			gl.Texture(false)
 
@@ -2938,7 +2943,7 @@ local function drawCell(rect)
 	end
 
 	local uid = rect.opts.uDefID
-	local unitTexture = "#" .. uid
+	local unitTexture = NativeTeamColorTexture(uid)
 	if not gridmenuUnitpicWarm.warmed[uid] then
 		tracy.ZoneBeginN("W:GridMenu:DrawCell:TextureWarmFallback")
 		if gl.Texture(unitTexture) then
@@ -3420,7 +3425,7 @@ local function drawBuilder(rect)
 		zoom,
 		nil,
 		math_max(0.1, highlightOpacity or 0.1),
-		"#" .. unitDefID,
+		NativeTeamColorTexture(unitDefID),
 		nil,
 		nil,
 		nil,
