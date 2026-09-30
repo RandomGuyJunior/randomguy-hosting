@@ -1,0 +1,4164 @@
+--
+-- Actions exposed:
+--
+-- gridmenu_key 1 1 <-- Sets the first grid key
+-- gridmenu_next_page <-- Go to next page
+-- gridmenu_prev_page <-- Go to previous page
+-- gridmenu_cycle_builder <-- Go to next selected builder menu
+
+-- PERF: refreshCommands does not need to fetch activecmddescs every time, e.g. setCurrentCategory
+-- PERF: updateGrid should be replaced by a method that only updates prices on cells on places where setLabBuildMode is used followed by updateGrid
+local widget = widget ---@type Widget
+
+-- LOCAL MOD (2026-09-27): this is a MODIFIED COPY of BAR's own bundled
+-- "Grid menu" widget, saved under its OWN distinct filename
+-- (gui_gridmenu_teamcolor.lua) and its OWN distinct GetInfo().name (see
+-- below), rather than reusing the original's filename/name. BAR's widget
+-- loader does NOT shadow the packaged copy by same-path VFS override the way
+-- some other Spring games' widget folders do -- it discovers every widget
+-- file across every mount and errors on "duplicate name" if two of them
+-- report the same GetInfo().name (this was tried first, with the same
+-- filename, and did hit exactly that error). So this widget instead:
+--   1. Has its own unique name, so it coexists as a genuinely separate,
+--      independently-loaded widget rather than colliding with the stock one.
+--   2. Explicitly disables the real "Grid menu" widget from its own
+--      widget:Initialize(), mirroring the EXACT pattern this same file
+--      already uses a few lines below to disable the older legacy
+--      "Build menu" widget (widgetHandler:IsWidgetKnown/:DisableWidgetRaw) --
+--      so only one build menu is ever active at a time, same as upstream's
+--      own Grid-menu-replaces-Build-menu mechanism.
+-- See the "LOCAL MOD" section further down for the actual recolor
+-- code/rationale. Everything else in this file is untouched from upstream --
+-- diff against beyond-all-reason/Beyond-All-Reason's own
+-- luaui/Widgets/gui_gridmenu.lua to see exactly what changed.
+
+function widget:GetInfo()
+	return {
+		name = "Grid menu (Team Color)",
+		desc = "Build menu with grid hotkeys + team-color icon recolor (local mod, replaces stock Grid menu)",
+		author = "Floris, grid by badosu and resopmok (original); team-color recolor local mod by Armis71",
+		date = "October 2021 (recolor mod added 2026-09-27)",
+		license = "GNU GPL, v2 or later",
+		layer = 0,
+		enabled = true,
+		handler = true,
+	}
+end
+
+-------------------------------------------------------------------------------
+--- CACHED VALUES
+-------------------------------------------------------------------------------
+local spGetCmdDescIndex = Spring.GetCmdDescIndex
+local spGetActiveCommand = Spring.GetActiveCommand
+local spGetUnitDefID = Spring.GetUnitDefID
+local spGetUnitIsBeingBuilt = Spring.GetUnitIsBeingBuilt
+local spGetSelectedUnitsSorted = Spring.GetSelectedUnitsSorted
+local spGiveOrderToUnit = Spring.GiveOrderToUnit
+
+local math_floor = math.floor
+local math_ceil = math.ceil
+local math_max = math.max
+local math_min = math.min
+
+local GL_SRC_ALPHA = GL.SRC_ALPHA
+local GL_ONE_MINUS_SRC_ALPHA = GL.ONE_MINUS_SRC_ALPHA
+local GL_ONE = GL.ONE
+
+local CMD_OPT_CTRL = CMD.OPT_CTRL
+local CMD_OPT_SHIFT = CMD.OPT_SHIFT
+
+-------------------------------------------------------------------------------
+--- STATIC VALUES
+-------------------------------------------------------------------------------
+
+local BUILDCAT_ECONOMY = BAR.I18N("ui.buildMenu.category_econ")
+local BUILDCAT_COMBAT = BAR.I18N("ui.buildMenu.category_combat")
+local BUILDCAT_UTILITY = BAR.I18N("ui.buildMenu.category_utility")
+local BUILDCAT_PRODUCTION = BAR.I18N("ui.buildMenu.category_production")
+local categoryTooltips = {
+	[BUILDCAT_ECONOMY] = BAR.I18N("ui.buildMenu.category_econ_descr"),
+	[BUILDCAT_COMBAT] = BAR.I18N("ui.buildMenu.category_combat_descr"),
+	[BUILDCAT_UTILITY] = BAR.I18N("ui.buildMenu.category_utility_descr"),
+	[BUILDCAT_PRODUCTION] = BAR.I18N("ui.buildMenu.category_production_descr"),
+}
+
+local folder = "LuaUI/Images/groupicons/"
+local groups = {
+	energy = folder .. "energy.png",
+	metal = folder .. "metal.png",
+	builder = folder .. "builder.png",
+	buildert2 = folder .. "buildert2.png",
+	buildert3 = folder .. "buildert3.png",
+	buildert4 = folder .. "buildert4.png",
+	util = folder .. "util.png",
+	weapon = folder .. "weapon.png",
+	explo = folder .. "weaponexplo.png",
+	weaponaa = folder .. "weaponaa.png",
+	weaponsub = folder .. "weaponsub.png",
+	aa = folder .. "aa.png",
+	emp = folder .. "emp.png",
+	sub = folder .. "sub.png",
+	nuke = folder .. "nuke.png",
+	antinuke = folder .. "antinuke.png",
+}
+
+local CONFIG = {
+	disableInputWhenSpec = false, -- disable specs selecting buildoptions
+	cellPadding = 0.007,
+	iconPadding = 0.015, -- space between icons
+	iconCornerSize = 0.025,
+	priceFontSize = 0.16,
+	activeAreaMargin = 0.1, -- (# * bgpadding) space between the background border and active area
+	sound_queue_add = "LuaUI/Sounds/buildbar_add.wav",
+	sound_queue_rem = "LuaUI/Sounds/buildbar_rem.wav",
+
+	categoryIcons = {
+		groups.energy,
+		groups.weapon,
+		groups.util,
+		groups.builder,
+	},
+	buildCategories = {
+		BUILDCAT_ECONOMY,
+		BUILDCAT_COMBAT,
+		BUILDCAT_UTILITY,
+		BUILDCAT_PRODUCTION,
+	},
+}
+
+local modKeyMultiplier = {
+	click = {
+		ctrl = 20,
+		shift = 5,
+		right = -1,
+	},
+	keyPress = {
+		ctrl = -1,
+		shift = 5,
+	},
+}
+
+-------------------------------------------------------------------------------
+
+local isSpec
+local myTeamID
+local startDefID
+
+-- Configurable values
+local stickToBottom = false
+local alwaysReturn = false
+local autoSelectFirst = true
+local alwaysShow = false
+local useLabBuildMode = false
+local showPrice = true -- false will still show hover
+local showRadarIcon = true -- false will still show hover
+local showGroupIcon = true -- false will still show hover
+local showBuildProgress = true
+
+local defaultCategoryOpts = {}
+
+local activeCmd
+local gridOpts
+
+local categories = {}
+local currentlyBuildingRectID
+local currentCategory
+local labBuildModeActive = false
+
+local activeBuilder, activeBuilderID, builderIsFactory
+local buildmenuShows = false
+local hoveredRect = false
+
+local costOverrides = {}
+
+-------------------------------------------------------------------------------
+--- KEYBIND VALUES
+-------------------------------------------------------------------------------
+
+include("keysym.h.lua")
+local dynamicBuildOptions = require("common/dynamicBuildOptions")
+
+local keyConfig = require("luaui/configs/keyboard_layouts")
+local currentLayout = Spring.GetConfigString("KeyboardLayout", "qwerty")
+local categoryKeys = {}
+local keyLayout = {}
+local nextPageKey
+
+-------------------------------------------------------------------------------
+--- RECT HELPER
+-------------------------------------------------------------------------------
+
+local Rect = {}
+function Rect:new(x1, y1, x2, y2, opts)
+	local this = {
+		x = x1,
+		y = y1,
+		xEnd = x2,
+		yEnd = y2,
+		opts = opts or {},
+	}
+
+	function this:contains(x, y)
+		return x >= self.x and x <= self.xEnd and y >= self.y and y <= self.yEnd
+	end
+
+	function this:set(newX1, newY1, newX2, newY2, newOpts)
+		this.x = newX1
+		this.y = newY1
+		this.xEnd = newX2
+		this.yEnd = newY2
+
+		if newOpts then
+			this.opts = newOpts
+		end
+	end
+
+	function this:getWidth()
+		return self.xEnd - self.x
+	end
+
+	function this:getHeight()
+		return self.yEnd - self.y
+	end
+
+	return this
+end
+
+-------------------------------------------------------------------------------
+--- INTERFACE VALUES
+-------------------------------------------------------------------------------
+
+-- Get from FlowUI
+local RectRound, RectRoundProgress, UiUnit, UiElement, UiButton, elementCorner, TexRectRound
+local ui_opacity, ui_scale
+
+local vsx, vsy = Spring.GetViewGeometry()
+
+local ordermenuLeft = math.floor(vsx / 5)
+local advplayerlistLeft = vsx * 0.8
+
+local zoomMult = 1.5
+local defaultCellZoom = 0.025 * zoomMult
+
+local hoverCellZoom = 0.1 * zoomMult
+local selectedCellZoom = 0.135 * zoomMult
+local clickCellZoom = 0.125 * zoomMult
+
+local hoverCellColor = { 0.63, 0.63, 0.63, 0 }
+local selectedCellColor = { 1, 0.85, 0.2, 0.25 }
+local clickCellColor = { 0.3, 0.8, 0.25, 0.2 }
+
+-- Highlight API state: items[unitDefID] = { color={r,g,b}, startTime=os.clock() }
+local highlight = { items = {}, count = 0, defaultColor = { 1.0, 1.0, 1.0 } }
+
+local sec = 0
+local bgpadding, iconMargin, activeAreaMargin
+local dlistGuishader, dlistGuishaderBuilders, dlistGuishaderBuildersNext, dlistBuildmenu, dlistProgress, font2
+local redraw, redrawProgress, ordermenuHeight, prevAdvplayerlistLeft
+local doUpdate, doUpdateClock
+local delayRefresh
+
+local cellPadding, iconPadding, cornerSize, cellInnerSize, cellSize
+local categoryFontSize, categoryButtonHeight, hotkeyFontSize, priceFontSize, pageFontSize
+local builderButtonSize
+local disableInput = CONFIG.disableInputWhenSpec and isSpec
+
+local columns = 4
+local rows = 3
+local cellCount = rows * columns
+local pages = 1
+local currentPage = 1
+local minimapHeight = 0.235
+
+local selectedBuilders = {}
+local prevSelectedBuilders = {}
+local selectedBuildersCount = 0
+local prevSelectedBuildersCount = 0
+
+local cellRects = {}
+for i = 1, cellCount do
+	cellRects[i] = Rect:new(0, 0, 0, 0)
+end
+local uDefCellIds = {}
+local gridmenuUnitpicWarm = { warmed = {}, queued = {}, queuedSet = {}, count = 0 }
+local gridmenuUnitpicWarmPerFrame = 2
+
+local function clearGridmenuUnitpicWarmQueue()
+	local warm = gridmenuUnitpicWarm
+	for defID in pairs(warm.queuedSet) do
+		warm.queuedSet[defID] = nil
+	end
+	for i = 1, warm.count do
+		warm.queued[i] = nil
+	end
+	warm.count = 0
+end
+
+local function queueGridmenuUnitpicWarm(unitDefID)
+	local warm = gridmenuUnitpicWarm
+	if unitDefID and not warm.warmed[unitDefID] and not warm.queuedSet[unitDefID] then
+		warm.count = warm.count + 1
+		warm.queued[warm.count] = unitDefID
+		warm.queuedSet[unitDefID] = true
+	end
+end
+
+local function queueGridmenuUnitpicWarmFromGrid()
+	clearGridmenuUnitpicWarmQueue()
+	if not gridOpts then
+		return
+	end
+	local offset = (currentPage - 1) * cellCount
+	for i = offset + 1, offset + cellCount do
+		local opt = gridOpts[i]
+		if opt and opt.id then
+			queueGridmenuUnitpicWarm(-opt.id)
+		end
+	end
+end
+
+local function flushGridmenuUnitpicWarmQueue()
+	local warm = gridmenuUnitpicWarm
+	local count = warm.count
+	if count <= 0 then
+		return true
+	end
+
+	tracy.ZoneBeginN("W:GridMenu:UnitpicWarmup")
+	local limit = math_min(count, gridmenuUnitpicWarmPerFrame)
+	for i = 1, limit do
+		local unitDefID = warm.queued[i]
+		if unitDefID then
+			if gl.Texture("#" .. unitDefID) then
+				warm.warmed[unitDefID] = true
+			end
+			warm.queuedSet[unitDefID] = nil
+		end
+	end
+	gl.Texture(false)
+	if limit < count then
+		for i = limit + 1, count do
+			local unitDefID = warm.queued[i]
+			local newIndex = i - limit
+			warm.queued[newIndex] = unitDefID
+			warm.queued[i] = nil
+		end
+		warm.count = count - limit
+	else
+		for i = 1, count do
+			warm.queued[i] = nil
+		end
+		warm.count = 0
+	end
+	tracy.ZoneEnd()
+
+	return warm.count == 0
+end
+
+local catRects = {}
+catRects[BUILDCAT_ECONOMY] = Rect:new(0, 0, 0, 0)
+catRects[BUILDCAT_COMBAT] = Rect:new(0, 0, 0, 0)
+catRects[BUILDCAT_UTILITY] = Rect:new(0, 0, 0, 0)
+catRects[BUILDCAT_PRODUCTION] = Rect:new(0, 0, 0, 0)
+local currentCategoryRect = Rect:new(0, 0, 0, 0)
+
+local maxBuilderRects = 5
+local nextBuilderRect = Rect:new(0, 0, 0, 0, {
+	name = "›",
+})
+local builderRects = {}
+for i = 1, maxBuilderRects do
+	builderRects[i] = Rect:new(0, 0, 0, 0)
+end
+
+local backgroundRect = Rect:new(0, 0, 0, 0)
+local backRect = Rect:new(0, 0, 0, 0, {
+	name = BAR.I18N("ui.buildMenu.back"),
+	keyText = keyConfig.sanitizeKey("shift", currentLayout),
+})
+local nextPageRect = Rect:new(0, 0, 0, 0)
+local categoriesRect = Rect:new(0, 0, 0, 0)
+local labBuildModeRect = Rect:new(0, 0, 0, 0)
+local buildpicsRect = Rect:new(0, 0, 0, 0)
+local buildersRect = Rect:new(0, 0, 0, 0)
+local isPregame
+
+-------------------------------------------------------------------------------
+--- Unit prep
+-------------------------------------------------------------------------------
+
+local grid = require("luaui/configs/gridmenu_config")
+local units = require("luaui/configs/unit_buildmenu_config")
+
+local unitBuildOptions = {}
+local unitMetal_extractor = {}
+local unitTranslatedHumanName = {}
+local unitTranslatedTooltip = {}
+local iconTypes = {}
+
+local function refreshUnitDefs()
+	unitBuildOptions = {}
+	unitMetal_extractor = {}
+	unitTranslatedHumanName = {}
+	unitTranslatedTooltip = {}
+	iconTypes = {}
+	local orgIconTypes = require("gamedata/icontypes")
+
+	-- unit names and icons
+	for udid, ud in pairs(UnitDefs) do
+		unitBuildOptions[udid] = ud.buildOptions
+		unitTranslatedHumanName[udid] = ud.translatedHumanName
+		unitTranslatedTooltip[udid] = ud.translatedTooltip
+
+		if ud.customParams.metal_extractor then
+			unitMetal_extractor[udid] = ud.customParams.metal_extractor
+		end
+		if ud.iconType and orgIconTypes[ud.iconType] and orgIconTypes[ud.iconType].bitmap then
+			iconTypes[ud.name] = orgIconTypes[ud.iconType].bitmap
+		end
+	end
+	dynamicBuildOptions.apply(unitBuildOptions)
+end
+
+-------------------------------------------------------------------------------
+--- STATE MANAGEMENT
+-------------------------------------------------------------------------------
+
+local function resetHovered()
+	for _, rects in ipairs({ catRects, builderRects }) do
+		for _, rect in pairs(rects) do
+			rect.opts.hovered = false
+		end
+	end
+
+	for _, rect in pairs(cellRects) do
+		rect.opts.hovered = false
+	end
+
+	WG.buildmenu.hoverID = nil
+	labBuildModeRect.opts.hovered = false
+	nextBuilderRect.opts.hovered = false
+	backRect.opts.hovered = false
+	nextPageRect.opts.hovered = false
+	hoveredRect = false
+	redraw = true
+end
+
+local function setHoveredRect(rect, clicked)
+	clicked = clicked or nil
+
+	if rect.opts.clicked ~= clicked then
+		for _, cellRect in pairs(cellRects) do
+			cellRect.opts.clicked = nil
+		end
+
+		rect.opts.clicked = clicked
+		redraw = true
+	end
+
+	if rect.opts.hovered and hoveredRect then
+		return
+	end
+
+	resetHovered()
+
+	hoveredRect = true
+	rect.opts.hovered = true
+end
+
+local function setHoveredRectTooltip(rect, text, title, clicked)
+	setHoveredRect(rect, clicked)
+
+	if WG.tooltip then
+		WG.tooltip.ShowTooltip("buildmenu", text, nil, nil, title)
+	end
+end
+
+local function updateHoverState()
+	local x, y, left, _, right = Spring.GetMouseState()
+	local isAboveBg = backgroundRect:contains(x, y)
+	local isAboveBuilders = not isAboveBg
+		and selectedBuildersCount > 1
+		and (buildersRect:contains(x, y) or nextBuilderRect:contains(x, y))
+
+	if isAboveBuilders then
+		Spring.SetMouseCursor("cursornormal")
+
+		-- builder buttons
+		if nextBuilderRect:contains(x, y) then
+			setHoveredRectTooltip(nextBuilderRect, "\255\240\240\240" .. BAR.I18N("ui.buildMenu.nextBuilder"))
+
+			return
+		end
+
+		for _, rect in pairs(builderRects) do
+			if rect:contains(x, y) then
+				-- if we reached the first inactive builderRect we stop checking
+				if not rect.opts.uDefID then
+					break
+				end
+
+				setHoveredRectTooltip(
+					rect,
+					unitTranslatedTooltip[rect.opts.uDefID],
+					unitTranslatedHumanName[rect.opts.uDefID]
+				)
+
+				return
+			end
+		end
+
+		if hoveredRect then
+			resetHovered()
+		end
+
+		return
+	end
+
+	if not isAboveBg then
+		if hoveredRect then
+			resetHovered()
+		end
+
+		return
+	end
+
+	Spring.SetMouseCursor("cursornormal")
+
+	for _, cellRect in pairs(cellRects) do
+		if cellRect:contains(x, y) then
+			if not cellRect.opts.uDefID then
+				if hoveredRect then
+					resetHovered()
+				end
+
+				return
+			end
+
+			local uDefID = cellRect.opts.uDefID
+
+			local text
+			local textColor = "\255\215\255\215"
+			if cellRect.opts.disabled then
+				text = BAR.I18N("ui.buildMenu.disabled", {
+					unit = unitTranslatedHumanName[uDefID],
+					textColor = textColor,
+					warnColor = "\255\166\166\166",
+				})
+			else
+				text = unitTranslatedHumanName[uDefID]
+			end
+			local tooltip = unitTranslatedTooltip[uDefID]
+			if unitMetal_extractor[uDefID] then
+				tooltip = tooltip .. "\n" .. BAR.I18N("ui.buildMenu.areamex_tooltip")
+			end
+
+			setHoveredRectTooltip(cellRect, "\255\240\240\240" .. tooltip, text, left or right)
+			WG.buildmenu.hoverID = uDefID
+
+			return
+		end
+	end
+
+	-- category buttons
+	if not currentCategory and not builderIsFactory then
+		for cat, catRect in pairs(catRects) do
+			if catRect:contains(x, y) then
+				local text = categoryTooltips[cat]
+					.. "\255\240\240\240 - Hotkey: \255\215\255\215["
+					.. catRect.opts.keyText
+					.. "]"
+
+				setHoveredRectTooltip(catRect, text, cat)
+
+				return
+			end
+		end
+	end
+
+	-- build mode button
+	if builderIsFactory and (useLabBuildMode and not labBuildModeActive) and labBuildModeRect:contains(x, y) then
+		setHoveredRectTooltip(labBuildModeRect, "\255\240\240\240" .. BAR.I18N("ui.buildMenu.buildmode_descr"))
+
+		return
+	end
+
+	if currentCategory or labBuildModeActive then
+		-- back button
+		if backRect and backRect:contains(x, y) then
+			setHoveredRectTooltip(backRect, "\255\240\240\240" .. BAR.I18N("ui.buildMenu.homePage"))
+
+			return
+		end
+	end
+
+	-- paginator buttons
+	if pages > 1 and nextPageRect and nextPageRect:contains(x, y) then
+		setHoveredRectTooltip(nextPageRect, "\255\240\240\240" .. BAR.I18N("ui.buildMenu.nextPage"))
+
+		return
+	end
+
+	if hoveredRect then
+		resetHovered()
+	end
+end
+
+local function getCodedOptState(cmdOptsCoded, cmdOpt)
+	return math.bit_and(cmdOptsCoded, cmdOpt) == cmdOpt
+end
+
+-- Retrieve from buildunit_ cmdOpts on factories the number of de/enqueued units
+-- Reference should be FactoryCAI GetCountMultiplierFromOptions in engine
+local function cmdOptsToFactoryQueueChange(cmdOpts)
+	local optTable = {}
+	if type(cmdOpts) == "number" then
+		optTable.ctrl = getCodedOptState(cmdOpts, CMD_OPT_CTRL)
+		optTable.shift = getCodedOptState(cmdOpts, CMD_OPT_SHIFT)
+		optTable.right = getCodedOptState(cmdOpts, CMD.OPT_RIGHT)
+	else
+		optTable = cmdOpts
+	end
+	local count = optTable.right and modKeyMultiplier.click.right or 1
+
+	if optTable.shift then
+		count = count * modKeyMultiplier.click.shift
+	end
+
+	if optTable.ctrl then
+		count = count * modKeyMultiplier.click.ctrl
+	end
+
+	return count
+end
+
+local function updateQuotaNumber(unitDefID, quantity)
+	local cellId = uDefCellIds[unitDefID]
+	if not cellId then
+		return
+	end
+	local cellRect = cellRects[cellId]
+	if WG.Quotas then
+		for _, builderID in ipairs(Spring.GetSelectedUnitsSorted()[activeBuilder]) do
+			local quotas = WG.Quotas.getQuotas()
+			quotas[builderID] = quotas[builderID] or {}
+			quotas[builderID][unitDefID] = quotas[builderID][unitDefID] or 0
+			quotas[builderID][unitDefID] = math.max(quotas[builderID][unitDefID] + (quantity or 0), 0)
+			cellRect.opts.quotanumber = quotas[builderID][unitDefID]
+		end
+		if quantity > 0 then
+			Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+		else
+			Spring.PlaySoundFile(CONFIG.sound_queue_rem, 0.75, "ui")
+		end
+	end
+	redraw = true
+end
+
+local function updateQueueNr(unitDefID, count)
+	-- if current grid has no option for currently built unit (e.g. pages) return
+	local cellId = uDefCellIds[unitDefID]
+	if not cellId then
+		return
+	end
+
+	local cellRect = cellRects[cellId]
+	local previousQueuenr = cellRect.opts.queuenr
+	local queuenr = math_max((previousQueuenr or 0) + count, 0)
+
+	if queuenr < 1 then
+		queuenr = nil
+	end
+
+	if previousQueuenr == queuenr then
+		return
+	end
+
+	cellRect.opts.queuenr = queuenr
+	redraw = true
+end
+
+local function formatPrice(price)
+	if price >= 1000 then
+		return string.format("%s %03d", formatPrice(math_floor(price / 1000)), price % 1000)
+	end
+	return price
+end
+
+local function updateBuildProgress()
+	currentlyBuildingRectID = nil
+
+	if not showBuildProgress or not activeBuilderID then
+		return
+	end
+
+	local unitBuildID = Spring.GetUnitIsBuilding(activeBuilderID)
+	local unitBuildDefID = unitBuildID and spGetUnitDefID(unitBuildID)
+
+	currentlyBuildingRectID = uDefCellIds[unitBuildDefID]
+
+	if not currentlyBuildingRectID then
+		return
+	end
+
+	local rect = cellRects[currentlyBuildingRectID]
+
+	rect.opts.progress = select(2, spGetUnitIsBeingBuilt(unitBuildID))
+
+	redrawProgress = true
+end
+
+-- State and parameters for warning the player when alt-click to add a unit to
+-- the front of the queue will cause a current build to be canceled
+local cancelWarning = {
+	-- Is the build shown by the progress indicator about to be thrown away?
+	---@type boolean
+	active = false,
+	---@type rgba
+	color = { 0.8, 0.05, 0.05, 0.45 },
+}
+
+-- Applies the same conditions as engine FactoryCAI::GiveCommandReal to
+-- determine whether alt-click will cancel the currently building unit
+---@return boolean
+function cancelWarning.isPending()
+	if disableInput or not builderIsFactory or not activeBuilderID or not currentlyBuildingRectID then
+		return false
+	end
+
+	local alt = Spring.GetModKeyState()
+	if not alt then
+		return false
+	end
+
+	-- Re-picking whatever is already in production leaves the buildee untouched
+	local hoveredDefID = WG.buildmenu.hoverID
+	local hoveredCellID = hoveredDefID and uDefCellIds[hoveredDefID]
+	if not hoveredCellID or hoveredCellID == currentlyBuildingRectID then
+		return false
+	end
+
+	if cellRects[hoveredCellID].opts.disabled then
+		return false
+	end
+
+	-- Repeat mode inserts behind the queue front rather than replacing it
+	local _, _, _, repeatOrders = Spring.GetUnitStates(activeBuilderID, false, true)
+	return not repeatOrders
+end
+
+function cancelWarning.update()
+	local pending = cancelWarning.isPending()
+	if pending ~= cancelWarning.active then
+		cancelWarning.active = pending
+		redrawProgress = true
+	end
+end
+
+local function updateSelectedCell()
+	for i = 1, cellCount do
+		local cellRect = cellRects[i]
+		cellRect.opts.selected = cellRect.opts.uDefID and activeCmd == -cellRect.opts.uDefID
+	end
+
+	redraw = true
+end
+
+local function updateGrid()
+	if not gridOpts then
+		return
+	end
+
+	-- update page data
+	local gridOptsCount = table.count(gridOpts)
+
+	if gridOptsCount > cellCount then
+		pages = math_ceil(gridOptsCount / cellCount)
+
+		if currentPage > pages then
+			currentPage = pages
+		end
+	else
+		currentPage = 1
+		pages = 1
+	end
+
+	-- update cells data
+	local cellRectID = 0
+
+	-- well reindex the cellsidsperudef
+	uDefCellIds = {}
+
+	local showHotkeys = (builderIsFactory and not useLabBuildMode)
+		or (builderIsFactory and useLabBuildMode and labBuildModeActive)
+		or (activeBuilder and currentCategory)
+
+	local offset = (currentPage - 1) * cellCount
+
+	for row = 1, 3 do
+		for col = 1, 4 do
+			cellRectID = cellRectID + 1
+
+			-- offset for pages
+			local index = cellRectID + offset
+
+			local uDefID
+			local cmd = gridOpts[index]
+			if cmd then
+				uDefID = -cmd.id
+			end
+
+			local rect = cellRects[cellRectID]
+			rect.opts.uDefID = uDefID
+
+			if uDefID then
+				uDefCellIds[uDefID] = cellRectID
+
+				rect.opts.disabled = units.isRestricted(uDefID, activeBuilder)
+
+				if showHotkeys then
+					local hotkey = string.gsub(string.upper(keyLayout[row][col]), "ANY%+", "")
+					rect.opts.hotkey = keyConfig.sanitizeKey(hotkey, currentLayout)
+				else
+					rect.opts.hotkey = nil
+				end
+
+				rect.opts.groupIcon = showRadarIcon and iconTypes[units.unitIconType[uDefID]]
+				rect.opts.unitGroup = showGroupIcon and groups[units.unitGroup[uDefID]]
+
+				rect.opts.metalCost = units.unitMetalCost[uDefID]
+				rect.opts.energyCost = units.unitEnergyCost[uDefID]
+
+				rect.opts.metalPrice = showPrice and formatPrice(rect.opts.metalCost)
+				rect.opts.energyPrice = showPrice and formatPrice(rect.opts.energyCost)
+
+				rect.opts.queuenr = cmd.params[1]
+
+				-- reset progress, we'll update buildprogress later
+				rect.opts.progress = nil
+			end
+
+			rect.opts.selected = uDefID and activeCmd == -uDefID
+		end
+	end
+
+	updateBuildProgress()
+	queueGridmenuUnitpicWarmFromGrid()
+
+	redraw = true
+end
+
+local function setupBuilderRects()
+	local currentX = buildersRect.xEnd
+	local y = buildersRect.y + iconMargin
+	local yEnd = buildersRect.yEnd + iconMargin
+
+	for i = 1, maxBuilderRects do
+		currentX = currentX + bgpadding + iconMargin + builderButtonSize
+		builderRects[i]:set(currentX - builderButtonSize, y, currentX, yEnd)
+	end
+
+	-- draw hint
+	nextBuilderRect:set(
+		0, -- We set x and xEnd dynamically depending on amount of selected builders
+		y + buildersRect:getHeight() * 0.2,
+		0,
+		-- We set x and xEnd dynamically depending on amount of selected builders
+		yEnd - buildersRect:getHeight() * 0.2
+	)
+	nextBuilderRect.opts.nameHeight = font2:GetTextHeight(nextBuilderRect.opts.name)
+end
+
+local function setupCells()
+	local cellRectID = 0
+
+	for row = 1, 3 do
+		for col = 1, 4 do
+			cellRectID = cellRectID + 1
+
+			-- if gridmenu is on bottom, we need to remap positions from 2x6 -> 3x4 grid
+			-- 3,1 -> 2,5
+			-- 3,2 -> 2,6
+			-- 3,3 -> 1,5
+			-- 3,4 -> 1,6
+			local acol = col
+			local arow = row
+			if row > 2 and stickToBottom then
+				arow = col < 3 and 2 or 1
+				acol = 6 - col % 2
+			end
+			cellRects[cellRectID]:set(
+				buildpicsRect.x + (acol - 1) * cellSize,
+				buildpicsRect.yEnd - (rows - arow + 1) * cellSize,
+				buildpicsRect.x + acol * cellSize,
+				buildpicsRect.yEnd - (rows - arow) * cellSize
+			)
+		end
+	end
+end
+
+local function setupCategoryRects()
+	-- set up rects
+	if stickToBottom then
+		local x1 = categoriesRect.x
+		local contentHeight = (categoriesRect.yEnd - categoriesRect.y) / #CONFIG.buildCategories
+		local contentWidth = categoriesRect.xEnd - categoriesRect.x
+
+		for i, cat in ipairs(CONFIG.buildCategories) do
+			local y1 = categoriesRect.yEnd - i * contentHeight + 2
+			catRects[cat]:set(
+				x1,
+				y1,
+				x1 + contentWidth - activeAreaMargin,
+				y1 + contentHeight - 2,
+				defaultCategoryOpts[i]
+			)
+		end
+
+		local y1 = ((categoriesRect.yEnd - categoriesRect.y) / 2) - (contentHeight / 2)
+
+		currentCategoryRect:set(x1, y1, x1 + contentWidth - activeAreaMargin, y1 + contentHeight - 2)
+	else
+		local buttonWidth = math.round(((categoriesRect.xEnd - categoriesRect.x) / #CONFIG.buildCategories))
+		local padding = math_max(1, math_floor(bgpadding * 0.52))
+		local y2 = categoriesRect.yEnd
+		for i, cat in ipairs(CONFIG.buildCategories) do
+			local x1 = categoriesRect.x + (i - 1) * buttonWidth
+
+			catRects[cat]:set(
+				x1,
+				y2 - categoryButtonHeight + padding,
+				x1 + buttonWidth,
+				y2 - activeAreaMargin - padding,
+				defaultCategoryOpts[i]
+			)
+		end
+		local x1 = (math.round(categoriesRect.xEnd - categoriesRect.x) / 2) - (buttonWidth / 2)
+		currentCategoryRect:set(
+			x1,
+			y2 - categoryButtonHeight + padding,
+			x1 + buttonWidth,
+			y2 - activeAreaMargin - padding
+		)
+	end
+end
+
+local function updateCategories(newCategories)
+	categories = newCategories
+
+	for _, cat in pairs(categories) do
+		local rect = catRects[cat]
+
+		rect.opts.current = cat == currentCategory
+	end
+end
+
+local function updateBuilders()
+	local builderTypes = 0
+
+	for unitDefID, count in pairsByKeys(selectedBuilders) do
+		builderTypes = builderTypes + 1
+
+		builderRects[builderTypes].opts.uDefID = unitDefID
+		builderRects[builderTypes].opts.count = count
+
+		if builderTypes == maxBuilderRects then
+			break
+		end
+	end
+
+	if builderTypes == 0 then
+		return
+	end
+
+	-- check if builder type selection actually differs from previous selection
+	local changes = false
+	if #selectedBuilders ~= #prevSelectedBuilders then
+		changes = true
+	else
+		for unitDefID, count in pairs(prevSelectedBuilders) do
+			if not selectedBuilders[unitDefID] then
+				changes = true
+				break
+			end
+		end
+		if not changes then
+			for unitDefID, count in pairs(selectedBuilders) do
+				if not prevSelectedBuilders[unitDefID] then
+					changes = true
+					break
+				end
+			end
+		end
+	end
+	if not changes then
+		return
+	end
+
+	-- grow buildersRect according to current number of selected builders
+	buildersRect.xEnd = builderRects[builderTypes].xEnd
+
+	local keyText = nextBuilderRect.opts.keyText
+
+	-- PERF: Move to a more static place, we only need to set this when viewresize or reloadbindings
+	local hotkeyWidth = keyText and (font2:GetTextWidth(keyText) * hotkeyFontSize) + (bgpadding * 2) or 0
+
+	nextBuilderRect.x = buildersRect.xEnd + (bgpadding * 3)
+	nextBuilderRect.xEnd = buildersRect.xEnd + (builderButtonSize * 0.45) + hotkeyWidth + (bgpadding * 3)
+
+	-- PERF: Move to a more static place, we only need to set this when viewresize or reloadbindings
+	nextBuilderRect.opts.keyTextHeight = font2:GetTextHeight(keyText)
+
+	redraw = true
+end
+
+-------------------------------------------------------------------------------
+--- HOTKEY AND ACTION HANDLING
+-------------------------------------------------------------------------------
+
+local function refreshCommands()
+	gridOpts = nil
+	local liveOptions -- build options the active builder unit really has, when known
+
+	if isPregame and startDefID then
+		activeBuilder = startDefID
+	end
+
+	if not activeBuilder then
+		if alwaysShow then
+			gridOpts = {}
+		else
+			return
+		end
+	elseif builderIsFactory then
+		local activeCmdDescs = Spring.GetUnitCmdDescs(activeBuilderID)
+
+		if activeCmdDescs then
+			gridOpts = grid.getSortedGridForLab(activeBuilder, activeCmdDescs)
+		end
+	else
+		updateCategories(CONFIG.buildCategories)
+
+		-- the unit's live build options (they can change at runtime); the def copy is for pregame
+		local buildOptions = unitBuildOptions[activeBuilder]
+		local cmdDescs = activeBuilderID and Spring.GetUnitCmdDescs(activeBuilderID)
+		if cmdDescs then
+			buildOptions = {}
+			liveOptions = {}
+			for i = 1, #cmdDescs do
+				local cmdID = cmdDescs[i].id
+				if cmdID < 0 then
+					buildOptions[#buildOptions + 1] = -cmdID
+					liveOptions[-cmdID] = true
+				end
+			end
+		end
+		gridOpts = grid.getSortedGridForBuilder(activeBuilder, buildOptions, currentCategory)
+	end
+
+	-- Filter out hidden units from gridOpts, and options the unit lacks (the home page layout is static)
+	if gridOpts then
+		local filteredOpts = {}
+		for i, opt in pairs(gridOpts) do
+			if opt and opt.id then
+				local uDefID = -opt.id
+				if not units.unitHidden[uDefID] and (not liveOptions or liveOptions[uDefID]) then
+					filteredOpts[i] = opt
+				end
+			else
+				filteredOpts[i] = opt
+			end
+		end
+		gridOpts = filteredOpts
+	end
+
+	updateGrid()
+end
+
+local function getActionHotkey(action)
+	local key
+	for _, keybinding in pairs(Spring.GetActionHotKeys(action)) do
+		if (not key) or keybinding:len() < key:len() then
+			key = keybinding
+		end
+
+		if key:len() == 1 then
+			break
+		end
+	end
+
+	return key
+end
+
+-- Helper function for iterating over the actions with builder and factory tags,
+-- with GetActionHotKeys those tags will be missed and the hotkey won't work
+local function getGridKey(action)
+	local key = getActionHotkey(action)
+		or getActionHotkey(action .. " builder")
+		or getActionHotkey(action .. " factory")
+	return key
+end
+
+local function reloadBindings()
+	currentLayout = Spring.GetConfigString("KeyboardLayout", "qwerty")
+
+	keyLayout = { {}, {}, {} }
+
+	for c = 1, 4 do
+		local categoryAction = "gridmenu_category " .. c
+		local cKey = getActionHotkey(categoryAction)
+
+		if not cKey then
+			cKey = ""
+		end
+
+		categoryKeys[c] = cKey
+
+		for r = 1, 3 do
+			local keyAction = "gridmenu_key " .. r .. " " .. c
+			local key = getGridKey(keyAction)
+
+			if not key then
+				key = ""
+			end
+
+			keyLayout[r][c] = key
+		end
+	end
+
+	local key = getActionHotkey("gridmenu_next_page")
+
+	nextPageKey = key
+
+	key = getActionHotkey("gridmenu_cycle_builder")
+
+	nextBuilderRect.opts.keyText = keyConfig.sanitizeKey(key, currentLayout) or nil
+end
+
+local function setLabBuildMode(value)
+	labBuildModeActive = value
+	redraw = true
+end
+
+local function setActiveCommand(cmd, button, leftClick, rightClick)
+	local didChangeCmd = button and Spring.SetActiveCommand(cmd, button, leftClick, rightClick, Spring.GetModKeyState())
+		or Spring.SetActiveCommand(cmd)
+
+	if not didChangeCmd then
+		Spring.Echo("<Grid menu> Unable to change active command", cmd)
+		return
+	end
+
+	activeCmd = select(2, spGetActiveCommand())
+
+	updateSelectedCell()
+end
+
+local function pickBlueprint(uDefID)
+	local isRepeatMex = unitMetal_extractor[uDefID] and -uDefID == activeCmd
+	local cmd = (WG.areamex and isRepeatMex and "areamex") or spGetCmdDescIndex(-uDefID)
+	if isRepeatMex and WG.areamex then
+		WG.areamex.setAreaMexType(-uDefID)
+	end
+	setActiveCommand(cmd)
+end
+
+local function setCurrentCategory(category)
+	local changedCategory = category and currentCategory ~= category
+
+	currentCategory = category
+
+	if category then
+		currentCategoryRect.opts = catRects[category].opts
+	end
+
+	updateCategories(categories)
+	refreshCommands()
+
+	-- handle selecting first option when switching category
+	if changedCategory and autoSelectFirst and activeBuilder then
+		local offset = (currentPage - 1) * cellCount
+
+		local firstCmd
+
+		-- Get first available cell command
+		for i = offset + 1, offset + cellCount do
+			local cellCmdOpt = gridOpts[i]
+			local cellCmd = cellCmdOpt and cellCmdOpt.id
+
+			if cellCmd and not units.isRestricted(-cellCmd, activeBuilder) then
+				firstCmd = cellCmd
+				break
+			end
+		end
+
+		if not firstCmd then
+			return
+		end
+
+		if isPregame then
+			-- here we repeat setPregameBlueprint, but we can't have circular dependencies
+			activeCmd = firstCmd
+
+			if WG["pregame-build"] and WG["pregame-build"].setPreGamestartDefID then
+				WG["pregame-build"].setPreGamestartDefID(-firstCmd)
+			end
+
+			updateSelectedCell()
+		else
+			pickBlueprint(-firstCmd)
+		end
+	end
+end
+
+local function setPregameBlueprint(uDefID)
+	if not isPregame then
+		return
+	end
+
+	activeCmd = uDefID and -uDefID
+	if WG["pregame-build"] and WG["pregame-build"].setPreGamestartDefID then
+		WG["pregame-build"].setPreGamestartDefID(uDefID)
+	end
+
+	if not uDefID then
+		setCurrentCategory(nil)
+	end
+end
+
+local function queueUnit(uDefID, opts, quantity)
+	local sel = spGetSelectedUnitsSorted()
+	for unitDefID, unitIds in pairs(sel) do
+		if units.isFactory[unitDefID] then
+			for _, uid in ipairs(unitIds) do
+				for _ = 1, quantity do
+					spGiveOrderToUnit(uid, -uDefID, 0, opts)
+				end
+			end
+		end
+	end
+end
+
+local function clearCategory()
+	setLabBuildMode(false)
+
+	if isPregame then
+		setPregameBlueprint(nil)
+	else
+		setCurrentCategory(nil)
+		setActiveCommand(0)
+	end
+end
+
+local function gridmenuCategoryHandler(_, _, args)
+	local cIndex = args and tonumber(args[1])
+	if not cIndex or cIndex < 1 or cIndex > 4 then
+		return
+	end
+	if builderIsFactory and useLabBuildMode and not labBuildModeActive then
+		Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+		setLabBuildMode(true)
+		refreshCommands()
+		return true
+	end
+
+	if not activeBuilder or builderIsFactory or (currentCategory and cellRects[cIndex]) then
+		return
+	end
+
+	local alt, ctrl, meta, _ = Spring.GetModKeyState()
+	if alt or ctrl or meta then
+		return
+	end
+
+	setCurrentCategory(categories[cIndex])
+
+	return true
+end
+
+local function multiQueue(uDefID, quantity, cap, opts)
+	--if quantity is more than 100, more than 20 or more than 5 then use engine logic for better performance (fewer for loops inside queueUnit())
+	if quantity >= cap then
+		multiqueue_quantity = math.floor(quantity / cap)
+		queueUnit(uDefID, opts, multiqueue_quantity)
+		quantity = math.fmod(quantity, cap)
+	end
+	return quantity
+end
+
+local function gridmenuKeyHandler(_, _, args, _, isRepeat)
+	if builderIsFactory and useLabBuildMode and not labBuildModeActive then
+		return
+	end
+	-- validate args
+	local row = args and tonumber(args[1])
+	local col = args and tonumber(args[2])
+
+	if (not row or row < 1 or row > 3) or (not col or col < 1 or col > 4) then
+		return
+	end
+
+	local uDefID = cellRects[(row - 1) * 4 + col].opts.uDefID -- cellRects iterate row then column
+	if not uDefID or units.isRestricted(uDefID, activeBuilder) then
+		return
+	end
+
+	if isRepeat and activeBuilder then
+		return currentCategory and true or false
+	end
+
+	local alt, ctrl, meta, shift = Spring.GetModKeyState()
+
+	if builderIsFactory then
+		local quantity = 1
+		if shift then
+			quantity = modKeyMultiplier.keyPress.shift
+		end
+
+		if ctrl then
+			quantity = quantity * modKeyMultiplier.keyPress.ctrl
+		end
+
+		if WG.Quotas and WG.Quotas.isOnQuotaMode(activeBuilderID) and not alt then
+			updateQuotaNumber(uDefID, quantity)
+			return true
+		else
+			if args[3] and args[3] == "builder" then
+				return false
+			end
+
+			local removing = false
+
+			if quantity < 0 then
+				quantity = quantity * -1
+				removing = true
+				Spring.PlaySoundFile(CONFIG.sound_queue_rem, 0.75, "ui")
+			else
+				Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+			end
+			--if quantity is more than 100, more than 20 or more than 5 then use engine logic for better performance (fewer for loops inside queueUnit())
+			quantity = multiQueue(uDefID, quantity, 100, { "ctrl", "shift", alt and "alt", removing and "right" })
+			quantity = multiQueue(uDefID, quantity, 20, { "ctrl", alt and "alt", removing and "right" })
+			quantity = multiQueue(uDefID, quantity, 5, { "shift", alt and "alt", removing and "right" })
+			--queue the remaining units
+			multiQueue(uDefID, quantity, 1, { alt and "alt", removing and "right" })
+
+			return true
+		end
+	elseif isPregame and currentCategory then
+		if alt or ctrl or meta then
+			return
+		end
+		if args[3] and args[3] == "factory" then
+			return false
+		end
+
+		setPregameBlueprint(uDefID)
+		updateGrid()
+		return true
+	elseif activeBuilder and currentCategory then
+		if args[3] and args[3] == "factory" then
+			return false
+		end
+		if alt or ctrl or meta then
+			return
+		end
+
+		pickBlueprint(uDefID)
+		return true
+	end
+
+	return false
+end
+
+local function nextPageHandler()
+	if pages < 2 or not activeBuilder then
+		return
+	end
+	currentPage = currentPage == pages and 1 or currentPage + 1
+
+	refreshCommands()
+end
+
+---Set active builder based on index in selectedBuilders
+---@param index number
+---@return nil
+local function setActiveBuilder(index, selectedUnitsSorted)
+	selectedUnitsSorted = selectedUnitsSorted or spGetSelectedUnitsSorted()
+
+	for i = 1, maxBuilderRects do
+		local rect = builderRects[i]
+
+		builderRects[i].opts.current = nil
+
+		if i == index then
+			local unitDefID = rect.opts.uDefID
+			local unitID = selectedUnitsSorted[unitDefID][1]
+
+			if unitID then
+				activeBuilder = unitDefID
+				activeBuilderID = unitID
+
+				builderIsFactory = units.isFactory[unitDefID]
+
+				builderRects[i].opts.current = true
+			end
+		end
+	end
+end
+
+---Switch to next builder type out of selected builders
+local function cycleBuilder()
+	if selectedBuildersCount < 2 then
+		return
+	end
+
+	-- find the index we want to switch to
+	local index = nil
+	for i = 1, selectedBuildersCount do
+		if activeBuilder == builderRects[i].opts.uDefID then
+			index = i % selectedBuildersCount
+			break
+		end
+	end
+
+	if not index then
+		return
+	end
+
+	setActiveBuilder(index + 1)
+
+	refreshCommands()
+end
+
+-------------------------------------------------------------------------------
+--- LOCAL MOD (2026-09-27): team-color icon recolor
+-------------------------------------------------------------------------------
+-- Recolors the default faction accent color baked into each unit's build
+-- icon (unitpics/*.dds) to the player's own team color instead -- e.g.
+-- Armada's default cyan-blue trim becomes green/red/whatever color you
+-- picked at game start. This is a selective HUE-shift (each pixel keeps its
+-- own original saturation/brightness, only its hue is rotated), drawn as an
+-- extra shader pass on top of the icon that's already drawn normally a few
+-- lines below in drawCell() -- NOT a whole-icon gl.Color multiply, which
+-- would just wash out the full-color artwork instead of cleanly recoloring
+-- the trim.
+--
+-- Faction coverage (2026-09-27 update): three hue bands are checked, one per
+-- faction's own default trim color, so this now covers Armada, Cortex AND
+-- Legion instead of Armada alone. Bands were derived by actually sampling
+-- real shipped unitpics/*.dds icons (armcom/corcom/legcom, armck/corck/legck,
+-- armca/corca/legca converted to PNG and histogrammed by hue), not guessed:
+--   - all three factions' icons share a common tan/bronze icon-frame color
+--     at hue ~0.06 (~22 deg) making up the bulk of each icon's saturated
+--     pixels -- that's NOT a faction accent color and must be excluded by
+--     every band below, which is why none of the three ranges get close to it.
+--   - Armada's own distinct cluster: hue ~0.58-0.64 (~209-230 deg, blue).
+--   - Cortex's own distinct cluster: hue ~0.98-0.02, wrapping through 0 (red).
+--   - Legion's own distinct cluster: hue ~0.28-0.36 (~101-130 deg, green).
+-- Each band below is set with a small safety margin around its sampled
+-- cluster so it doesn't drift into the shared frame color or another
+-- faction's band. A unit belonging to a 4th thing (e.g. Raptors/Scavengers)
+-- simply won't match any band and is left showing its own stock color,
+-- same fail-safe behavior as everything else in this pass.
+--
+-- Fails safe: if gl.LuaShader isn't available, or the shader doesn't
+-- compile, this feature silently does nothing -- the real build menu below
+-- is completely unaffected either way.
+--
+-- NOTE ON `local`: this file's main chunk is already sitting close to Lua
+-- 5.1's 200-local ceiling (a from-source build confirmed adding these as
+-- plain top-level `local`s pushes it over: "main function has more than 200
+-- local variables"). Every new name below is therefore a genuine Lua GLOBAL
+-- (no `local` keyword) instead -- each widget has its own private global
+-- environment table in this engine (that's what `WG`/"Widget Globals" is
+-- FOR, as the deliberate cross-widget mechanism), so this can't collide with
+-- another widget's globals; it only has to avoid names already used
+-- elsewhere in THIS file, confirmed via grep against upstream before adding.
+
+TEAMCOLOR_RECOLOR_ENABLED = true -- flip to false to disable without deleting any code
+
+-- Armada: default cyan-blue trim.
+TEAMCOLOR_RECOLOR_HUE_MIN_ARM = 0.50 -- ~180 degrees
+TEAMCOLOR_RECOLOR_HUE_MAX_ARM = 0.66 -- ~238 degrees
+
+-- Cortex: default red trim. Wraps through hue 0/1 (refHueMinCor > refHueMaxCor
+-- signals "wraparound" to the shader, same convention the old single-band
+-- code already used).
+TEAMCOLOR_RECOLOR_HUE_MIN_COR = 0.95 -- ~342 degrees
+TEAMCOLOR_RECOLOR_HUE_MAX_COR = 0.035 -- ~13 degrees
+
+-- Legion: default green trim.
+-- LOCAL MOD (2026-09-28, band-width fix): MAX was 0.37, which cut the band
+-- off right before the trim's own densest, most saturated region. Confirmed
+-- via direct pixel analysis of the live legafus.dds pulled from the game's
+-- asset pool (a huge, highly-saturated cluster, median sat 0.6-0.9, sits at
+-- hue 0.34-0.40, mostly above the old 0.37 ceiling) and via an in-game
+-- magenta/cyan debug overlay in gui_info_teamcolor.lua's own copy of this
+-- shader, which showed EVERY Legion unit's icon landing 100% outside the hue
+-- band (all magenta, zero cyan) -- a hue-band bug, not a threshold bug,
+-- affecting the whole faction since the band is one shared constant. Widened
+-- to 0.44 to cover the whole cluster with margin; still well clear of
+-- Armada's band (starts at 0.50), so there's no new collision risk. Ported
+-- here after being found and confirmed fixed in gui_info_teamcolor.lua.
+TEAMCOLOR_RECOLOR_HUE_MIN_LEG = 0.27 -- ~97 degrees
+TEAMCOLOR_RECOLOR_HUE_MAX_LEG = 0.44 -- ~158 degrees
+
+-- Scavengers: default purple trim.
+-- LOCAL MOD (2026-09-28, new band): "_scav"-suffixed unit variants (runtime
+-- clones of a normal unit, created by a gadget for the Scavengers tech-tier
+-- content, e.g. armafust3_scav) sample a wholly separate buildpic --
+-- unitpics/scavengers/<name>.dds, not the plain unitpics/<name>.dds -- with
+-- its own shared purple accent, confirmed by pulling and histogramming the
+-- real shipped armafust3_scav/corafust3_scav/legafust3_scav.dds files
+-- straight from the game's asset pool. All three, despite coming from three
+-- different faction models, cluster on the SAME purple hue (median
+-- 0.78-0.82) -- one shared "this is Scavenger tech" palette, not a
+-- per-faction color, so one new band covers all of them. Ported here after
+-- being found and confirmed fixed in gui_info_teamcolor.lua; see that file's
+-- own copy of this comment for the full percentile-based band derivation.
+-- Clear of Armada's band (ends at 0.66) and Cortex's band (starts at 0.95).
+TEAMCOLOR_RECOLOR_HUE_MIN_SCAV = 0.68
+TEAMCOLOR_RECOLOR_HUE_MAX_SCAV = 0.90
+
+TEAMCOLOR_RECOLOR_SAT_THRESHOLD = 0.30 -- ignore low-saturation pixels (grays/whites/blacks/shadows)
+
+teamColorRecolorShader = nil
+
+teamColorRecolorVertexShader = [[
+	varying vec2 texCoord;
+	void main() {
+		texCoord = gl_MultiTexCoord0.st;
+		gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+	}
+]]
+
+teamColorRecolorFragmentShader = [[
+	uniform sampler2D tex0;
+	uniform float targetHue;
+	uniform float targetSat;
+	uniform float refHueMinArm;
+	uniform float refHueMaxArm;
+	uniform float refHueMinCor;
+	uniform float refHueMaxCor;
+	uniform float refHueMinLeg;
+	uniform float refHueMaxLeg;
+	uniform float refHueMinScav;
+	uniform float refHueMaxScav;
+	uniform float satThresholdArm;
+	uniform float satThresholdCor;
+	uniform float satThresholdLeg;
+	uniform float satThresholdScav;
+	// LOCAL MOD (2026-09-28, spatial restriction): see the long comment above
+	// TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT for the full rationale. Defaults to
+	// [0.0, 1.0] (the whole icon, i.e. a no-op) for every unit except ones
+	// with an explicit override -- currently only armadvsol's Armada band.
+	uniform float restrictArmVMin;
+	uniform float restrictArmVMax;
+	// LOCAL MOD (2026-09-28, T1 laser tower false positive): corllt/corhllt's
+	// own Cortex-band red trim and their laser beam's red glow occupy the
+	// same hue/saturation range (unlike armbeamer/armllt's beams, which are a
+	// DIFFERENT faction's hue entirely and so are handled by the sat-threshold
+	// override instead -- see TEAMCOLOR_RECOLOR_SAT_THRESHOLD_OVERRIDE). An
+	// axis-aligned texCoord.s (horizontal) box was tried first (in two
+	// rounds -- a guessed window, then its mirrored "flip") and confirmed NOT
+	// to work via a live diagnostic overlay in gui_info_teamcolor.lua's own
+	// copy of this shader: real pixel extraction showed the beam/blast region
+	// and the legitimate trim region overlap on BOTH texCoord axes, so no
+	// box in either direction can separate them. Replaced with a linear
+	// (diagonal) cut in (s,t) space instead: a point is EXCLUDED (treated as
+	// beam, not trim) when lineExcludeCorA*s + lineExcludeCorB*t +
+	// lineExcludeCorC > 0. Each unit's a/b/c come from fitting a
+	// logistic-regression decision boundary to real extracted-icon pixels
+	// labeled by connected-component cluster identity -- see
+	// TEAMCOLOR_RECOLOR_LINE_EXCLUDE below for the full methodology and
+	// per-unit fit quality. Defaults to a=0, b=0, c=-1 (the expression is
+	// always -1, never > 0, i.e. a no-op) for every unit without an override.
+	uniform float lineExcludeCorA;
+	uniform float lineExcludeCorB;
+	uniform float lineExcludeCorC;
+	// TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE (2026-09-28, corllt muzzle blast): a
+	// single linear cut can only bisect a round region, not exclude all of
+	// it -- confirmed by a live screenshot showing corllt's circular muzzle
+	// blast half-recolored (the half on the trim side of the line). Adds a
+	// second, radial exclusion test OR'd with the line test above: a point
+	// is EXCLUDED when its distance from (circleExcludeCorX,
+	// circleExcludeCorY) in (s,t) space is < circleExcludeCorR. Defaults to
+	// circleExcludeCorR=0.0, a no-op (distance is never negative, so
+	// distance < 0 is never true) for every unit without an override -- see
+	// TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE below for the fitted per-unit values.
+	uniform float circleExcludeCorX;
+	uniform float circleExcludeCorY;
+	uniform float circleExcludeCorR;
+	// TEAMCOLOR_RECOLOR_RESCUE_INCLUDE (2026-09-28, corllt torso-plate wedge):
+	// a small legitimate torso-plate trim wedge on corllt is wrongly caught
+	// by the pre-existing TEAMCOLOR_RECOLOR_LINE_EXCLUDE fit (unrelated to
+	// any of the circle-exclude work above) -- confirmed via connected-
+	// component pixel clustering, distinguished from the adjacent (correctly
+	// excluded) beam glow by brightness (wedge mean value ~0.71 vs beam
+	// ~0.96). Re-fitting the line risked reopening previously-fixed
+	// regressions elsewhere, so instead this is a "rescue" circle: a point
+	// within distance rescueCorR of (rescueCorX, rescueCorY) is forced back
+	// to un-excluded (matchCor true) regardless of what the line or circle
+	// exclude tests say. Defaults to rescueCorR=0.0, a no-op (distance is
+	// never negative) for every unit without an override -- see
+	// TEAMCOLOR_RECOLOR_RESCUE_INCLUDE below for the fitted per-unit values.
+	uniform float rescueCorX;
+	uniform float rescueCorY;
+	uniform float rescueCorR;
+	varying vec2 texCoord;
+
+	vec3 rgb2hsv(vec3 c) {
+		vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+		vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+		vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+		float d = q.x - min(q.w, q.y);
+		float e = 1.0e-10;
+		return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+	}
+
+	vec3 hsv2rgb(vec3 c) {
+		vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+		vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+		return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+	}
+
+	bool inHueBand(float hue, float lo, float hi) {
+		if (lo <= hi) {
+			return (hue >= lo && hue <= hi);
+		}
+		return (hue >= lo || hue <= hi);
+	}
+
+	void main() {
+		vec4 texColor = texture2D(tex0, texCoord);
+		vec3 hsv = rgb2hsv(texColor.rgb);
+
+		// LOCAL MOD (2026-09-27, per-band threshold fix): each faction band now
+		// has its OWN saturation gate instead of one shared satThreshold. This
+		// lets a per-unit override raise (or fully suppress) just ONE band's
+		// gate -- e.g. Legion's Advanced Fusion Reactor's own false-positive
+		// Armada-band matches, see TEAMCOLOR_RECOLOR_SAT_THRESHOLD_OVERRIDE --
+		// without touching the other two bands' gates at all, so an icon's own
+		// LEGITIMATE trim (in a different band) is never affected by a fix for
+		// a false positive in an unrelated band on the same icon.
+		// LOCAL MOD (2026-09-28, spatial restriction): armadvsol's solar-panel
+		// glass and its leg/connector trim share statistically indistinguishable
+		// hue/saturation/value in the source art (confirmed via real pixel
+		// sampling -- no threshold-based fix can separate them), so the Armada
+		// band additionally gates on texCoord.t (the icon's vertical UV
+		// coordinate) for units with a spatial override. restrictArmVMin/VMax
+		// default to [0.0, 1.0] (full range, i.e. a no-op) for every unit
+		// without one -- see TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT below.
+		bool matchArm = inHueBand(hsv.x, refHueMinArm, refHueMaxArm) && hsv.y >= satThresholdArm
+			&& texCoord.t >= restrictArmVMin && texCoord.t <= restrictArmVMax;
+		// LOCAL MOD (2026-09-28, T1 laser tower false positive): see the
+		// comment above lineExcludeCorA/B/C. Same anti-leak-safe default
+		// (a=0,b=0,c=-1, a no-op) as every other per-band override uniform.
+		bool corLineExclude = (lineExcludeCorA * texCoord.s + lineExcludeCorB * texCoord.t + lineExcludeCorC) > 0.0;
+		// LOCAL MOD (2026-09-28, corllt muzzle blast): see the comment above
+		// circleExcludeCorX/Y/R. Same anti-leak-safe default (r=0, a no-op)
+		// as every other per-band override uniform.
+		float corBlastDist = distance(texCoord, vec2(circleExcludeCorX, circleExcludeCorY));
+		bool corCircleExclude = corBlastDist < circleExcludeCorR;
+		// LOCAL MOD (2026-09-28, corllt torso-plate wedge): see the comment
+		// above rescueCorX/Y/R. Same anti-leak-safe default (r=0, a no-op) as
+		// every other per-band override uniform. Rescue wins over either
+		// exclude test -- it un-excludes, it never excludes something the
+		// other two tests would otherwise have kept.
+		float corRescueDist = distance(texCoord, vec2(rescueCorX, rescueCorY));
+		bool corRescue = corRescueDist < rescueCorR;
+		bool corExcluded = (corLineExclude || corCircleExclude) && !corRescue;
+		bool matchCor = inHueBand(hsv.x, refHueMinCor, refHueMaxCor) && hsv.y >= satThresholdCor
+			&& !corExcluded;
+		bool matchLeg = inHueBand(hsv.x, refHueMinLeg, refHueMaxLeg) && hsv.y >= satThresholdLeg;
+		// LOCAL MOD (2026-09-28): 4th band for Scavenger-tech "_scav" unit
+		// variants -- see TEAMCOLOR_RECOLOR_HUE_MIN_SCAV above for the
+		// investigation.
+		bool matchScav = inHueBand(hsv.x, refHueMinScav, refHueMaxScav) && hsv.y >= satThresholdScav;
+
+		if (matchArm || matchCor || matchLeg || matchScav) {
+			// LOCAL MOD (2026-09-27, accuracy fix): also carry over the team
+			// color's own SATURATION, not just its hue -- keeping the icon's
+			// own hsv.y here (its original paint saturation) made every team
+			// color render at the icon's own fixed saturation, so a muted/
+			// brownish team color came out looking like a vivid, fully-
+			// saturated version of that hue (read as "just red"), and a pale
+			// (low-saturation) team color came out looking as saturated as
+			// the icon's own default paint (indistinguishable from stock).
+			// hsv.z (brightness) is deliberately left alone -- that's what
+			// carries the icon's own shading/highlights/shadows, and
+			// overwriting it would flatten the icon instead of just
+			// recoloring it.
+			hsv.x = targetHue;
+			hsv.y = targetSat;
+			gl_FragColor = vec4(hsv2rgb(hsv), texColor.a);
+		} else {
+			gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+		}
+	}
+]]
+
+-- Plain-Lua RGB->hue (0..1). Only the hue channel is needed -- the shader
+-- keeps each pixel's own original saturation/value -- so this deliberately
+-- doesn't compute a full RGB->HSV triple, just the one component the
+-- shader's targetHue uniform actually wants.
+function rgbToHue(r, g, b)
+	local maxc = math_max(r, g, b)
+	local minc = math_min(r, g, b)
+	local delta = maxc - minc
+	if delta <= 0.00001 then
+		return 0 -- undefined hue (gray) -- caller treats this as "no recolor"
+	end
+	local hue
+	if maxc == r then
+		hue = ((g - b) / delta) % 6
+	elseif maxc == g then
+		hue = (b - r) / delta + 2
+	else
+		hue = (r - g) / delta + 4
+	end
+	return hue / 6
+end
+
+-- Plain-Lua RGB->saturation (0..1), the "how far from gray" component of
+-- HSV. Added 2026-09-27 alongside the shader's targetSat uniform (see the
+-- accuracy-fix comment on the fragment shader above) -- rgbToHue() above
+-- deliberately only computed hue since saturation wasn't used at first; now
+-- both are needed from the same team-color RGB, so this is a small sibling
+-- function rather than folding a second return value into rgbToHue() and
+-- risking breaking its existing callers/tests.
+function rgbToSat(r, g, b)
+	local maxc = math_max(r, g, b)
+	if maxc <= 0.00001 then
+		return 0 -- pure black: no meaningful saturation
+	end
+	local minc = math_min(r, g, b)
+	return (maxc - minc) / maxc
+end
+
+-- LOCAL MOD (2026-09-27): per-unit, PER-BAND saturation-threshold override
+-- for the recolor pass. Some icons bake in their own "electric arc"/plasma-
+-- glow art (bright, anti-aliased white-to-blue highlight lines) that isn't
+-- faction trim at all -- it's a lighting effect specific to that unit's
+-- artwork. The shader can only judge pixels by hue/saturation/brightness, so
+-- a handful of that effect's antialiased edge pixels can coincidentally land
+-- inside a completely unrelated faction's hue band and get wrongly
+-- recolored, producing a patchy look in the middle of the icon.
+--
+-- First attempt (superseded): a full per-unit EXCLUSION list that skipped
+-- the recolor pass entirely for the affected icon. That killed the patchy
+-- artifact, but it also stopped the icon's own legitimate trim (the
+-- mechanical arms/frame around the plasma ball, which really is Legion's
+-- default green trim) from ever being recolored at all -- so the icon was
+-- permanently stuck green regardless of the player's actual team color,
+-- which the user reported back as worse, not better ("makes the legion
+-- afuses green and it sucks").
+--
+-- Second attempt (also superseded): raised the ONE shared satThreshold for
+-- this icon's draw from 0.30 to 0.60. This still cut into the legitimate
+-- Legion-band trim (real pixel-sampling of the shipped LEGAFUS.DDS icon put
+-- retention at ~78.5% of source pixels), and worse, the actual in-game
+-- render turned out to filter out far more of the real trim than that raw-
+-- source-pixel sampling predicted -- reported back by the user as the icon
+-- still showing fully stock green, i.e. barely any trim actually survived
+-- the 0.60 gate once drawn at real icon size (texture-filter/mip blending at
+-- typical icon draw size lowers a lot of interior pixels' effective
+-- saturation below what a raw full-resolution source-pixel sample shows).
+--
+-- The actual fix: the false-positive pixels are in the ARMADA hue band
+-- (bright white-to-blue arc highlights) while the legitimate trim is in the
+-- LEGION hue band (the icon's own green frame/arms) -- two entirely
+-- different bands. Since the shader now gates each band with its OWN
+-- saturation threshold (satThresholdArm/Cor/Leg, see the fragment shader
+-- above), this icon's Armada-band gate can be pushed high enough to never
+-- match anything at all (there is no legitimate reason for real Armada-hue
+-- trim on a Legion unit's icon in the first place) while its Legion-band
+-- gate stays at the normal shared default -- so the false positive is fully
+-- eliminated with ZERO effect on the icon's own real trim recoloring, no
+-- retention tradeoff needed at all. 1.5 is used as the "never matches"
+-- sentinel (real saturation never exceeds 1.0) rather than inventing a
+-- separate boolean per-band disable mechanism.
+--
+-- legafus = Legion Advanced Fusion Reactor; legafust3 = its Scavenger-tier
+-- variant (units/Scavengers/Buildings/Economy/legafust3.lua), confirmed to
+-- reuse the exact same buildpic ("LEGAFUS.DDS") so it has the identical
+-- false positive and gets the identical override. Plain legfus (base-tier
+-- Legion Fusion Reactor) has a different, calmer icon with no crackling-arc
+-- art and was confirmed clean -- intentionally NOT in this table (keeps the
+-- default threshold on every band).
+-- LOCAL MOD (2026-09-28, coradvsol/legadvsol false positive): the SAME
+-- shared blue solar-panel material that caused the armadvsol false positive
+-- also appears on Cortex's and Legion's own Advanced Solar Collector icons
+-- (confirmed via real pixel extraction: coradvsol has 264 Armada-hue
+-- saturated pixels, legadvsol has 109 -- both clustered narrowly, unlike
+-- armadvsol's much larger false-positive area). Unlike armadvsol, THESE two
+-- don't need the spatial-restriction mechanism at all: Cortex's own
+-- legitimate trim is red-band (hue 0.95-0.035) and Legion's is green-band
+-- (hue 0.27-0.44), both entirely disjoint from the Armada band (0.50-0.66)
+-- by construction -- so there is no legitimate reason for ANY Armada-hue
+-- pixel to exist on either unit's icon, the same reasoning that justified
+-- the legafus/legafust3 "never matches" sentinel below. Pushing their
+-- Armada-band threshold to 1.5 fully suppresses the false positive with
+-- zero risk to their own (differently-hued) real trim recolor.
+-- LOCAL MOD (2026-09-28, T1 laser tower false positive): armbeamer's laser
+-- beam glow is purple-hued (falls in the SCAV band, meant for the unrelated
+-- Scavenger-tech purple accent -- pure coincidence of hue, armbeamer has
+-- nothing to do with Scavengers) and armllt's laser beam is red-hued (falls
+-- in the COR band -- also pure coincidence, armllt has nothing to do with
+-- Cortex). Confirmed via real pixel extraction + a magenta overlay of each
+-- band's match: both bands' matches land EXACTLY on the beam graphic and
+-- nowhere on the icon's own legitimate (Armada-band) blue trim, so the same
+-- "never matches" sentinel used for legafus/coradvsol/legadvsol fully
+-- suppresses each false positive with zero effect on the real trim recolor.
+TEAMCOLOR_RECOLOR_SAT_THRESHOLD_OVERRIDE = {
+	legafus = { arm = 1.5 },
+	legafust3 = { arm = 1.5 },
+	coradvsol = { arm = 1.5 },
+	legadvsol = { arm = 1.5 },
+	armbeamer = { scav = 1.5 },
+	armllt = { cor = 1.5 },
+}
+
+-- LOCAL MOD (2026-09-28, armadvsol false positive): the Advanced Solar
+-- Collector's solar-panel glass (a fixed blue material property, should
+-- NEVER recolor) and its small leg/connector trim (legitimately should
+-- track team color) occupy the SAME hue/saturation/value range in the
+-- source art -- confirmed via real extracted-pixel percentile analysis
+-- (panel avgHue=0.603/avgSat=0.717/avgVal=0.721 vs legs
+-- avgHue=0.596/avgSat=0.707/avgVal=0.678, effectively indistinguishable).
+-- Every previous false-positive fix in this shader was solvable with
+-- hue/saturation alone; this one isn't, so this is the first band that
+-- also gates on WHERE in the icon a pixel sits: texCoord.t is the icon's
+-- vertical UV coordinate.
+--
+-- CORRECTED (2026-09-28, after a first deploy left the icon fully
+-- unrecolored -- neither panel nor legs). A live in-game debug diagnostic
+-- on gui_info_teamcolor.lua (paint by texCoord.t: red = t>0.667, green =
+-- 0.333-0.667, blue = t<0.333) confirmed the mapping is DIRECT, not
+-- flipped: screen-top of the drawn icon is LOW t, screen-bottom is HIGH t,
+-- matching the DDS file's own row order (row 0 = top of image = low t). So
+-- orientation was never the bug. The real cause: the first window
+-- (0.60-0.90) reached back into the panel's own row range (dense cluster
+-- ends sharply at row 163 of 256, t=0.637) and also included the SPARSEST,
+-- lowest-density edge of the legs cluster (rows 172-191, count 17-49 per
+-- 4-row block) -- exactly the kind of thin, low-saturation-after-
+-- downscaling content that BAR's own icon mip-blur washes out below the
+-- saturation gate at actual render size (the same lesson learned from the
+-- Legion hue-band investigation). Retightened to sit on the legs
+-- cluster's DENSEST, most robust rows (192-207, count 104-241 per 4-row
+-- block -- by far the strongest signal in the whole cluster) with a small
+-- margin on each side, and now starts comfortably clear of the panel's
+-- row-163 cutoff.
+-- Every unit without an entry here gets vMin=0.0/vMax=1.0 (full range,
+-- i.e. a complete no-op) so this can never affect any other icon.
+-- LOCAL MOD (2026-09-28, T1 laser tower false positive, corllt/corhllt):
+-- unlike armbeamer/armllt above, corllt's and corhllt's laser beams are RED
+-- -- the SAME hue as their own legitimate Cortex-band trim (confirmed via
+-- real pixel extraction: no saturation or value threshold cleanly separates
+-- the two populations, the same "same-hue" problem armadvsol's panel/legs
+-- had). Two rounds of an axis-aligned texCoord.s (horizontal) box on the COR
+-- band -- first a guessed window, then its mirrored "flip" -- both failed
+-- (confirmed live via gui_info_teamcolor.lua's debugCorMaskMode diagnostic,
+-- which showed near-total-magenta coverage): real pixel-cluster analysis
+-- showed why a box can never work here, for either unit -- the beam/blast
+-- blob's bounding box overlaps the legitimate trim's bounding box on BOTH
+-- texCoord axes. See TEAMCOLOR_RECOLOR_LINE_EXCLUDE below for the mechanism
+-- that replaced it, and gui_info_teamcolor.lua's own copy of this table for
+-- the fuller methodology writeup.
+TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT = {
+	armadvsol = { arm = { vMin = 0.68, vMax = 0.84 } },
+}
+
+-- LOCAL MOD (2026-09-28, T1 laser tower false positive, corllt/corhllt --
+-- real fix): replaces the corllt/corhllt entries formerly in
+-- TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT above (removed, see its comment) with a
+-- linear/diagonal cut in (s,t) texture-coordinate space instead of an
+-- axis-aligned box. Fit via logistic regression against real extracted-icon
+-- pixels -- see gui_info_teamcolor.lua's own copy of this table for the full
+-- methodology. A pixel is EXCLUDED (denied recolor) when
+-- a*s + b*t + c > 0.
+--
+-- CORRECTED (2026-09-28, user screenshot: base recolored, gun turret head
+-- stayed stock red): corllt's FIRST fit (a=8.1262, b=-13.1285, c=2.2661)
+-- labeled "exclude" by whole-blob identity (the single biggest connected
+-- component), without checking that corllt's gun barrel sits close enough
+-- to its own blast that the housing's red head/torso panels and the
+-- beam+blast fuse into ONE connected blob -- so that fit wrongly excluded
+-- the whole gun head from recoloring too, not just the real beam. Re-fit
+-- using explicit rectangular "keep" regions (head+torso box, base-ring box)
+-- as ground truth instead of blob identity; confirmed visually against the
+-- real icon before redeploying. corhllt's fit was unaffected by this bug --
+-- its twin-turret geometry keeps both gun housings spatially disconnected
+-- from either beam in the connected-component analysis, so its
+-- cluster-brightness-based labeling (beam/blast meanVal ~0.89-0.98, legit
+-- trim meanVal ~0.42-0.76) was already correct.
+--
+--   corllt:  a=23.6226 b=-6.9825  c=-11.9803  (93.6% training accuracy;
+--            corrected fit -- see above)
+--   corhllt: a=17.2151 b=-2.6811  c=-9.1859  (89.6% training accuracy)
+--
+-- Every unit without an entry here gets a=0, b=0, c=-1 (always -1, never
+-- > 0, i.e. a complete no-op) so this can never affect any other icon.
+TEAMCOLOR_RECOLOR_LINE_EXCLUDE = {
+	corllt = { cor = { a = 23.6226, b = -6.9825, c = -11.9803 } },
+	corhllt = { cor = { a = 17.2151, b = -2.6811, c = -9.1859 } },
+}
+
+-- TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE (2026-09-28, corllt muzzle blast "half
+-- red"): user screenshot showed corllt's turret head now correctly
+-- recoloring after the LINE_EXCLUDE fit above, but the circular muzzle
+-- blast at the gun's tip was only HALF excluded -- the half on the trim
+-- side of the fitted line stayed included and wrongly recolored, since a
+-- single straight cut can only bisect a round region, not exclude all of
+-- it. Fixed by adding a second exclusion primitive, OR'd with the line
+-- test: a point is excluded when its (s,t) distance from
+-- (circleExcludeCorX, circleExcludeCorY) is < circleExcludeCorR.
+--
+-- CORRECTED (2026-09-28, user screenshot with arrows: "if you bring it
+-- lower it should work"): the FIRST circle fit (x=0.60, y=0.28, r=0.15) was
+-- centered/sized by eye against a coordinate-grid overlay of the real icon
+-- and looked clean in isolation, but a live screenshot showed it reaching
+-- up and left into the turret's own solid-red head panel and the torso's
+-- red edge strip below the collar -- both still stock red where they
+-- should recolor. A closer, un-tinted zoomed crop of the real icon showed
+-- why: those panels are flat-shaded with sharp edges (highlight lines,
+-- vent-slot details) right up against the muzzle, so the original circle's
+-- upper-left arc clipped straight through them. Re-centered further
+-- down-right, tucked against the barrel tip rather than the wider glow's
+-- fuzzy outer edge, and shrunk slightly so its boundary stays clear of
+-- every sharp panel edge (confirmed numerically: 0 of the solid head
+-- diamond's pixels, 0 of the base-ring's, 0 of any pixel at s<=0.45, fall
+-- inside the new circle) while still fully covering the specific lobe of
+-- the blast that was wrongly recoloring.
+--
+-- CORRECTED AGAIN (2026-09-28, user screenshot with a hand-drawn blue
+-- crescent: "if we can expand to the left it's almost there now"): the
+-- SECOND fit (x=0.65, y=0.37, r=0.12) fixed the head/torso clipping, but
+-- was tucked in tight enough that it left a thin crescent-shaped sliver of
+-- the blast's own glow -- right where it wraps around the barrel's base,
+-- between the collar and the main blast core -- still on the keep side,
+-- so that sliver stayed wrongly recolored. Confirmed against the same
+-- keep/exclude pixel overlay used throughout this investigation: a small
+-- cyan "peninsula" reaching down from the collar into the blast region,
+-- exactly matching the user's hand-drawn crescent. Widened the radius and
+-- shifted the center up-left slightly to absorb that peninsula, re-checked
+-- that this still doesn't reach the solid head diamond, the base ring, or
+-- anything at s<=0.45 (still 0 pixels each).
+--
+--   corllt: x=0.62 y=0.35 r=0.14  (was x=0.65 y=0.37 r=0.12)
+--
+-- CORRECTED A THIRD TIME (2026-09-28, user screenshot: "arrows point to just
+-- a little more expansion to the left to cover teamcolor showing in the
+-- blast"): the THIRD fit (x=0.62, y=0.35, r=0.14) fixed the crescent sliver,
+-- but a thin strip of team color was still showing along the collar/blast
+-- boundary -- the circle's lower edge fell just short of the blast's true
+-- extent there. Grew and re-centered again, verified 262/267 of the
+-- leftover strip's pixels now covered, still 0 pixels of the solid head
+-- diamond, the base ring, or anything at s<=0.45 fall inside the new circle.
+--
+--   corllt: x=0.62 y=0.37 r=0.16  (was x=0.62 y=0.35 r=0.14)
+--
+-- corhllt was checked too and does NOT have this bug -- both of its
+-- twin-turret muzzle blasts fall entirely on the exclude side of its
+-- existing line fit already, so it gets no entry here.
+--
+-- Every unit without an entry here gets r=0 (distance is never negative, so
+-- distance < 0 is never true, i.e. a complete no-op) so this can never
+-- affect any other icon.
+TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE = {
+	corllt = { cor = { x = 0.62, y = 0.37, r = 0.16 } },
+}
+
+-- TEAMCOLOR_RECOLOR_RESCUE_INCLUDE (2026-09-28, corllt torso-plate wedge):
+-- same user screenshot also circled a SEPARATE, pre-existing bug: "blue
+-- circle shows red where teamcolor should be" -- a small legitimate
+-- torso-plate trim wedge on corllt that's wrongly caught by the ORIGINAL
+-- TEAMCOLOR_RECOLOR_LINE_EXCLUDE fit above, unrelated to any of the
+-- circle-exclude work. Confirmed via connected-component pixel clustering:
+-- a compact wedge (~267px, bbox s=[0.688,0.734] t=[0.609,0.727], mean
+-- brightness ~0.71) distinguished from the adjacent, correctly-excluded
+-- beam-glow cluster (mean brightness ~0.96). Re-fitting the line risked
+-- reopening previously-fixed regressions elsewhere on this icon, so instead
+-- this adds a "rescue" circle: any pixel within (rescueCorX, rescueCorY,
+-- rescueCorR) is forced back to un-excluded (matchCor true) regardless of
+-- what the line or circle exclude tests say. Verified: 262/267 of the wedge
+-- pixels are rescued, with 0 pixels of the adjacent beam cluster wrongly
+-- rescued.
+--
+--   corllt: x=0.71 y=0.665 r=0.06
+--
+-- Every unit without an entry here gets r=0 (distance is never negative, so
+-- distance < 0 is never true, i.e. a complete no-op) so this can never
+-- affect any other icon.
+TEAMCOLOR_RECOLOR_RESCUE_INCLUDE = {
+	corllt = { cor = { x = 0.71, y = 0.665, r = 0.06 } },
+}
+
+-- Draws the recolor pass for one cell's icon, using the EXACT same rect
+-- (cellPadding/iconPadding-inset) and the exact same "zoom + 0.02" offset
+-- formula that WG.FlowUI.Draw.Unit's own icon layer uses internally
+-- (DrawUnitUncached in gui_flowui.lua) so this overlay lines up pixel-
+-- perfectly with the icon drawCell() already drew a moment ago.
+function DrawTeamColorRecolor(rect, unitTexture, usedZoom, unitDefID)
+	if not TEAMCOLOR_RECOLOR_ENABLED or not teamColorRecolorShader then
+		return
+	end
+
+	-- LOCAL MOD (2026-09-27): per-unit, per-band saturation-threshold
+	-- override, see the comment above TEAMCOLOR_RECOLOR_SAT_THRESHOLD_OVERRIDE.
+	-- Each band independently falls back to the normal shared threshold
+	-- unless this unit's override table supplies that specific band.
+	local satThresholdArmForThisDraw = TEAMCOLOR_RECOLOR_SAT_THRESHOLD
+	local satThresholdCorForThisDraw = TEAMCOLOR_RECOLOR_SAT_THRESHOLD
+	local satThresholdLegForThisDraw = TEAMCOLOR_RECOLOR_SAT_THRESHOLD
+	local satThresholdScavForThisDraw = TEAMCOLOR_RECOLOR_SAT_THRESHOLD
+	-- LOCAL MOD (2026-09-28, spatial restriction): see the comment above
+	-- TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT. Defaults to the full [0.0, 1.0]
+	-- range (a no-op) for every unit except an explicit override.
+	local restrictArmVMinForThisDraw = 0.0
+	local restrictArmVMaxForThisDraw = 1.0
+	-- LOCAL MOD (2026-09-28, T1 laser tower false positive -- real fix): see
+	-- the comment above TEAMCOLOR_RECOLOR_LINE_EXCLUDE. a=0,b=0,c=-1 is a
+	-- no-op (the expression is always -1, never > 0, so corLineExclude is
+	-- always false) for every unit without an override.
+	local lineExcludeCorAForThisDraw = 0.0
+	local lineExcludeCorBForThisDraw = 0.0
+	local lineExcludeCorCForThisDraw = -1.0
+	-- LOCAL MOD (2026-09-28, corllt muzzle blast -- real fix): see the
+	-- comment above TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE. r=0 is a no-op
+	-- (distance is never negative, so distance < r is always false) for
+	-- every unit without an override.
+	local circleExcludeCorXForThisDraw = 0.0
+	local circleExcludeCorYForThisDraw = 0.0
+	local circleExcludeCorRForThisDraw = 0.0
+	-- LOCAL MOD (2026-09-28, corllt torso-plate wedge): see the comment
+	-- above TEAMCOLOR_RECOLOR_RESCUE_INCLUDE. r=0 is a no-op (distance is
+	-- never negative, so distance < r is always false) for every unit
+	-- without an override.
+	local rescueCorXForThisDraw = 0.0
+	local rescueCorYForThisDraw = 0.0
+	local rescueCorRForThisDraw = 0.0
+	if unitDefID then
+		local uDef = UnitDefs[unitDefID]
+		local override = uDef and TEAMCOLOR_RECOLOR_SAT_THRESHOLD_OVERRIDE[uDef.name]
+		if override then
+			satThresholdArmForThisDraw = override.arm or satThresholdArmForThisDraw
+			satThresholdCorForThisDraw = override.cor or satThresholdCorForThisDraw
+			satThresholdLegForThisDraw = override.leg or satThresholdLegForThisDraw
+			satThresholdScavForThisDraw = override.scav or satThresholdScavForThisDraw
+		end
+		local spatialOverride = uDef and TEAMCOLOR_RECOLOR_SPATIAL_RESTRICT[uDef.name]
+		if spatialOverride and spatialOverride.arm then
+			restrictArmVMinForThisDraw = spatialOverride.arm.vMin or restrictArmVMinForThisDraw
+			restrictArmVMaxForThisDraw = spatialOverride.arm.vMax or restrictArmVMaxForThisDraw
+		end
+		local lineExcludeOverride = uDef and TEAMCOLOR_RECOLOR_LINE_EXCLUDE[uDef.name]
+		if lineExcludeOverride and lineExcludeOverride.cor then
+			lineExcludeCorAForThisDraw = lineExcludeOverride.cor.a or lineExcludeCorAForThisDraw
+			lineExcludeCorBForThisDraw = lineExcludeOverride.cor.b or lineExcludeCorBForThisDraw
+			lineExcludeCorCForThisDraw = lineExcludeOverride.cor.c or lineExcludeCorCForThisDraw
+		end
+		local circleExcludeOverride = uDef and TEAMCOLOR_RECOLOR_CIRCLE_EXCLUDE[uDef.name]
+		if circleExcludeOverride and circleExcludeOverride.cor then
+			circleExcludeCorXForThisDraw = circleExcludeOverride.cor.x or circleExcludeCorXForThisDraw
+			circleExcludeCorYForThisDraw = circleExcludeOverride.cor.y or circleExcludeCorYForThisDraw
+			circleExcludeCorRForThisDraw = circleExcludeOverride.cor.r or circleExcludeCorRForThisDraw
+		end
+		local rescueOverride = uDef and TEAMCOLOR_RECOLOR_RESCUE_INCLUDE[uDef.name]
+		if rescueOverride and rescueOverride.cor then
+			rescueCorXForThisDraw = rescueOverride.cor.x or rescueCorXForThisDraw
+			rescueCorYForThisDraw = rescueOverride.cor.y or rescueCorYForThisDraw
+			rescueCorRForThisDraw = rescueOverride.cor.r or rescueCorRForThisDraw
+		end
+	end
+
+	local tr, tg, tb = Spring.GetTeamColor(myTeamID)
+	if not tr then
+		return
+	end
+
+	-- A near-gray team color (e.g. a very desaturated custom color) has no
+	-- meaningful hue to recolor towards -- skip rather than shift to an
+	-- arbitrary/unstable hue.
+	local maxc, minc = math_max(tr, tg, tb), math_min(tr, tg, tb)
+	if maxc - minc <= 0.02 then
+		return
+	end
+
+	local targetHue = rgbToHue(tr, tg, tb)
+	local targetSat = rgbToSat(tr, tg, tb)
+
+	local x1 = rect.x + cellPadding + iconPadding
+	local y1 = rect.y + cellPadding + iconPadding
+	local x2 = rect.xEnd - cellPadding - iconPadding
+	local y2 = rect.yEnd - cellPadding - iconPadding
+
+	gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	gl.Color(1, 1, 1, 1)
+	gl.Texture(unitTexture)
+	teamColorRecolorShader:Activate()
+	teamColorRecolorShader:SetUniform("targetHue", targetHue)
+	teamColorRecolorShader:SetUniform("targetSat", targetSat)
+	-- LOCAL MOD (2026-09-27): all three per-band satThreshold uniforms are set
+	-- on every single draw call (default or overridden), never left to
+	-- whatever the previous icon's draw happened to set -- this is a single
+	-- shared shader instance reused across every icon's draw call within the
+	-- same frame, so skipping any of these when there's no override would
+	-- leak the PREVIOUS icon's threshold (possibly a Legion-only override)
+	-- into unrelated icons/factions drawn right after it. Always setting all
+	-- three explicitly keeps the override strictly scoped to the one draw
+	-- call it's for.
+	teamColorRecolorShader:SetUniform("satThresholdArm", satThresholdArmForThisDraw)
+	teamColorRecolorShader:SetUniform("satThresholdCor", satThresholdCorForThisDraw)
+	teamColorRecolorShader:SetUniform("satThresholdLeg", satThresholdLegForThisDraw)
+	teamColorRecolorShader:SetUniform("satThresholdScav", satThresholdScavForThisDraw)
+	-- LOCAL MOD (2026-09-28): same anti-leak discipline as the satThreshold
+	-- uniforms above -- always set explicitly (default or overridden) since
+	-- this is one shared shader instance reused across every icon's draw.
+	teamColorRecolorShader:SetUniform("restrictArmVMin", restrictArmVMinForThisDraw)
+	teamColorRecolorShader:SetUniform("restrictArmVMax", restrictArmVMaxForThisDraw)
+	teamColorRecolorShader:SetUniform("lineExcludeCorA", lineExcludeCorAForThisDraw)
+	teamColorRecolorShader:SetUniform("lineExcludeCorB", lineExcludeCorBForThisDraw)
+	teamColorRecolorShader:SetUniform("lineExcludeCorC", lineExcludeCorCForThisDraw)
+	teamColorRecolorShader:SetUniform("circleExcludeCorX", circleExcludeCorXForThisDraw)
+	teamColorRecolorShader:SetUniform("circleExcludeCorY", circleExcludeCorYForThisDraw)
+	teamColorRecolorShader:SetUniform("circleExcludeCorR", circleExcludeCorRForThisDraw)
+	teamColorRecolorShader:SetUniform("rescueCorX", rescueCorXForThisDraw)
+	teamColorRecolorShader:SetUniform("rescueCorY", rescueCorYForThisDraw)
+	teamColorRecolorShader:SetUniform("rescueCorR", rescueCorRForThisDraw)
+	gl.BeginEnd(GL.QUADS, TexRectRound, x1, y1, x2, y2, cornerSize, 1, 1, 1, 1, usedZoom + 0.02)
+	teamColorRecolorShader:Deactivate()
+	gl.Texture(false)
+end
+
+function widget:Initialize()
+	refreshUnitDefs()
+	units.loadBlocked()
+
+	if widgetHandler:IsWidgetKnown("Build menu") then
+		-- Build menu needs to be disabled right now and before we recreate
+		-- WG['buildmenu'] since its Shutdown will destroy it.
+		widgetHandler:DisableWidgetRaw("Build menu")
+	end
+
+	-- LOCAL MOD (2026-09-27): this widget is a modified copy of the stock
+	-- "Grid menu" widget (see the file-header comment for why it's under a
+	-- different name/filename instead of overriding it in place). Disable
+	-- the real one the same way the block above already disables the older
+	-- "Build menu" widget, so only this copy is ever actually drawing/
+	-- handling clicks -- otherwise both would be active at once, each
+	-- drawing their own build menu on top of the other.
+	if widgetHandler:IsWidgetKnown("Grid menu") then
+		widgetHandler:DisableWidgetRaw("Grid menu")
+	end
+
+	myTeamID = Spring.GetLocalTeamID()
+	isSpec = Spring.GetSpectatingState()
+	isPregame = Spring.GetGameFrame() == 0 and not isSpec
+
+	-- LOCAL MOD (2026-09-27): team-color icon recolor shader, see its own
+	-- section further up for the actual GLSL/rationale. Fails safe: leaves
+	-- teamColorRecolorShader nil (DrawTeamColorRecolor then no-ops) if
+	-- shaders aren't supported or this one fails to compile.
+	if gl.LuaShader then
+		teamColorRecolorShader = gl.LuaShader({
+			vertex = teamColorRecolorVertexShader,
+			fragment = teamColorRecolorFragmentShader,
+			uniformInt = { tex0 = 0 },
+			uniformFloat = {
+				targetHue = 0,
+				targetSat = 0,
+				refHueMinArm = TEAMCOLOR_RECOLOR_HUE_MIN_ARM,
+				refHueMaxArm = TEAMCOLOR_RECOLOR_HUE_MAX_ARM,
+				refHueMinCor = TEAMCOLOR_RECOLOR_HUE_MIN_COR,
+				refHueMaxCor = TEAMCOLOR_RECOLOR_HUE_MAX_COR,
+				refHueMinLeg = TEAMCOLOR_RECOLOR_HUE_MIN_LEG,
+				refHueMaxLeg = TEAMCOLOR_RECOLOR_HUE_MAX_LEG,
+				refHueMinScav = TEAMCOLOR_RECOLOR_HUE_MIN_SCAV,
+				refHueMaxScav = TEAMCOLOR_RECOLOR_HUE_MAX_SCAV,
+				satThresholdArm = TEAMCOLOR_RECOLOR_SAT_THRESHOLD,
+				satThresholdCor = TEAMCOLOR_RECOLOR_SAT_THRESHOLD,
+				satThresholdLeg = TEAMCOLOR_RECOLOR_SAT_THRESHOLD,
+				satThresholdScav = TEAMCOLOR_RECOLOR_SAT_THRESHOLD,
+				restrictArmVMin = 0.0,
+				restrictArmVMax = 1.0,
+				lineExcludeCorA = 0.0,
+				lineExcludeCorB = 0.0,
+				lineExcludeCorC = -1.0,
+				circleExcludeCorX = 0.0,
+				circleExcludeCorY = 0.0,
+				circleExcludeCorR = 0.0,
+				rescueCorX = 0.0,
+				rescueCorY = 0.0,
+				rescueCorR = 0.0,
+			},
+		}, "GridMenuTeamColorRecolor")
+		if not teamColorRecolorShader:Initialize() then
+			Spring.Echo(
+				"[GridMenu] team-color icon recolor shader failed to compile -- disabling that effect only, the build menu itself is unaffected"
+			)
+			teamColorRecolorShader = nil
+		end
+	end
+
+	-- If mission disables the initial commander spawn, suppress the entire pregame build path (build menu, startDefID binding, buildmenuShows = true, etc.)
+	if isPregame then
+		local missionOptions = require("luaui/Include/mission_options")
+		isPregame = not missionOptions.IsStartUnitSpawnDisabled()
+	end
+
+	WG.gridmenu = {}
+	WG.buildmenu = {}
+
+	doUpdateClock = os.clock()
+
+	widgetHandler.actionHandler:AddAction(self, "gridmenu_key", gridmenuKeyHandler, nil, "pR")
+	widgetHandler.actionHandler:AddAction(self, "gridmenu_category", gridmenuCategoryHandler, nil, "p")
+	widgetHandler.actionHandler:AddAction(self, "gridmenu_next_page", nextPageHandler, nil, "p")
+	widgetHandler.actionHandler:AddAction(self, "gridmenu_cycle_builder", cycleBuilder, nil, "p")
+
+	reloadBindings()
+
+	-- Setup some semi-static data so we don't need to perform in-game
+	for catIndex, cat in pairs(CONFIG.buildCategories) do
+		local keyText = keyConfig.sanitizeKey(categoryKeys[catIndex], currentLayout)
+
+		defaultCategoryOpts[catIndex] = {
+			name = cat,
+			icon = CONFIG.categoryIcons[catIndex],
+			keyText = keyText,
+		}
+	end
+
+	ui_opacity = WG.FlowUI.opacity
+	ui_scale = WG.FlowUI.scale
+
+	-- Get our starting unit
+	if isPregame then
+		startDefID = Spring.GetTeamRulesParam(myTeamID, "startUnit")
+	end
+
+	widget:ViewResize()
+
+	if isPregame then
+		refreshCommands()
+	else
+		widget:SelectionChanged(Spring.GetSelectedUnits())
+	end
+
+	WG.gridmenu.getActiveBuilder = function()
+		return activeBuilder
+	end
+	WG.gridmenu.getAlwaysReturn = function()
+		return alwaysReturn
+	end
+	WG.gridmenu.setAlwaysReturn = function(value)
+		alwaysReturn = value
+	end
+	WG.gridmenu.getAutoSelectFirst = function()
+		return autoSelectFirst
+	end
+	WG.gridmenu.setAutoSelectFirst = function(value)
+		autoSelectFirst = value
+	end
+	WG.gridmenu.getUseLabBuildMode = function()
+		return useLabBuildMode
+	end
+	WG.gridmenu.setUseLabBuildMode = function(value)
+		useLabBuildMode = value
+		updateGrid()
+	end
+	WG.gridmenu.setCurrentCategory = function(category)
+		setCurrentCategory(category)
+	end
+	WG.gridmenu.clearCategory = function()
+		clearCategory()
+	end
+
+	WG.gridmenu.getCtrlKeyModifier = function()
+		return modKeyMultiplier.keyPress.ctrl
+	end
+	WG.gridmenu.setCtrlKeyModifier = function(value)
+		modKeyMultiplier.keyPress.ctrl = value
+	end
+	WG.gridmenu.getShiftKeyModifier = function()
+		return modKeyMultiplier.keyPress.shift
+	end
+	WG.gridmenu.setShiftKeyModifier = function(value)
+		modKeyMultiplier.keyPress.shift = value
+	end
+
+	WG.buildmenu.getGroups = function()
+		return groups, units.unitGroup
+	end
+	WG.buildmenu.getOrder = function()
+		return units.unitOrder
+	end
+	WG.buildmenu.getShowPrice = function()
+		return showPrice
+	end
+	WG.buildmenu.setShowPrice = function(value)
+		showPrice = value
+		updateGrid()
+	end
+	WG.buildmenu.getAlwaysShow = function()
+		return alwaysShow
+	end
+	WG.buildmenu.setAlwaysShow = function(value)
+		alwaysShow = value
+		refreshCommands()
+	end
+	WG.buildmenu.getShowRadarIcon = function()
+		return showRadarIcon
+	end
+	WG.buildmenu.setShowRadarIcon = function(value)
+		showRadarIcon = value
+		updateGrid()
+	end
+	WG.buildmenu.getShowGroupIcon = function()
+		return showGroupIcon
+	end
+	WG.buildmenu.setShowGroupIcon = function(value)
+		showGroupIcon = value
+		updateGrid()
+	end
+	WG.buildmenu.getBottomPosition = function()
+		return stickToBottom
+	end
+	WG.buildmenu.setBottomPosition = function(value)
+		stickToBottom = value
+		widget:ViewResize()
+	end
+	WG.buildmenu.getSize = function()
+		return backgroundRect.y, backgroundRect.yEnd
+	end
+	WG.buildmenu.reloadBindings = function()
+		reloadBindings()
+		refreshCommands()
+	end
+	WG.buildmenu.getIsShowing = function()
+		return buildmenuShows
+	end
+	---@class CostLine
+	---@field value number?
+	---@field color string?
+	---@field colorDisabled string?
+	---@field disabled boolean?
+
+	---@class CostData
+	---@field top CostLine?
+	---@field bottom CostLine?
+
+	---Override the cost display for a specific unit in the grid menu
+	---@param unitDefID UnitDefID The unit definition ID to override costs for
+	---@param costData CostData Cost override configuration table with optional properties
+	WG.gridmenu.setCostOverride = function(unitDefID, costData)
+		if unitDefID and costData then
+			costOverrides[unitDefID] = costData
+			redraw = true
+			refreshCommands()
+		end
+	end
+
+	---Clear cost overrides for a specific unit or all units
+	---@param unitDefID UnitDefID? The unit definition ID to clear overrides for. If nil or not provided, clears all cost overrides.
+	WG.gridmenu.clearCostOverrides = function(unitDefID)
+		if unitDefID then
+			costOverrides[unitDefID] = nil
+		else
+			for defID in pairs(costOverrides) do
+				costOverrides[defID] = nil
+			end
+		end
+		redraw = true
+		refreshCommands()
+	end
+
+	---Highlight a build option to draw the player's attention to it with a pulsing
+	---inner outline and a soft inner glow. Non-destructive: does not affect input or
+	---block hover/selection visuals. Subsequent calls update the existing highlight.
+	---@param unitDefID UnitDefID The unit definition ID to highlight.
+	---@param color number[]? Optional {r,g,b} in 0..1. Defaults to a warm yellow.
+	local function setHighlight(unitDefID, color)
+		if not unitDefID then
+			return
+		end
+		local items = highlight.items
+		if not items[unitDefID] then
+			highlight.count = highlight.count + 1
+		end
+		items[unitDefID] = {
+			color = color,
+			startTime = (items[unitDefID] and items[unitDefID].startTime) or os.clock(),
+		}
+	end
+
+	local function removeHighlight(unitDefID)
+		local items = highlight.items
+		if unitDefID and items[unitDefID] then
+			items[unitDefID] = nil
+			highlight.count = math_max(0, highlight.count - 1)
+		end
+	end
+
+	local function clearHighlights()
+		local items = highlight.items
+		for k in pairs(items) do
+			items[k] = nil
+		end
+		highlight.count = 0
+	end
+
+	local function hasHighlight(unitDefID)
+		return unitDefID ~= nil and highlight.items[unitDefID] ~= nil
+	end
+
+	WG.buildmenu.setHighlight = setHighlight
+	WG.buildmenu.removeHighlight = removeHighlight
+	WG.buildmenu.clearHighlights = clearHighlights
+	WG.buildmenu.hasHighlight = hasHighlight
+	WG.gridmenu.setHighlight = setHighlight
+	WG.gridmenu.removeHighlight = removeHighlight
+	WG.gridmenu.clearHighlights = clearHighlights
+	WG.gridmenu.hasHighlight = hasHighlight
+end
+
+-------------------------------------------------------------------------------
+--- INTERFACE SETUP
+-------------------------------------------------------------------------------
+
+local function checkGuishader(force)
+	if WG.guishader then
+		if force and dlistGuishader then
+			dlistGuishader = gl.DeleteList(dlistGuishader)
+		end
+		if not dlistGuishader then
+			dlistGuishader = gl.CreateList(function()
+				RectRound(backgroundRect.x, backgroundRect.y, backgroundRect.xEnd, backgroundRect.yEnd, elementCorner)
+			end)
+			if activeBuilder then
+				WG.guishader.InsertDlist(dlistGuishader, "buildmenu")
+			end
+		end
+	elseif dlistGuishader then
+		dlistGuishader = gl.DeleteList(dlistGuishader)
+	end
+end
+
+-- Set up all of the UI positioning
+function widget:ViewResize()
+	vsx, vsy = Spring.GetViewGeometry()
+
+	local widgetSpaceMargin = WG.FlowUI.elementMargin
+	bgpadding = WG.FlowUI.elementPadding
+	iconMargin = math.floor((bgpadding * 0.5) + 0.5)
+	elementCorner = WG.FlowUI.elementCorner
+	RectRound = WG.FlowUI.Draw.RectRound
+	RectRoundProgress = WG.FlowUI.Draw.RectRoundProgress
+	UiUnit = WG.FlowUI.Draw.Unit
+	TexRectRound = WG.FlowUI.Draw.TexRectRound
+	UiElement = WG.FlowUI.Draw.Element
+	UiButton = WG.FlowUI.Draw.Button
+	categoryFontSize = 0.013 * ui_scale * vsy
+	hotkeyFontSize = categoryFontSize + 5
+	pageFontSize = categoryFontSize
+	categoryButtonHeight = math_floor(2.3 * categoryFontSize * ui_scale)
+	builderButtonSize = categoryButtonHeight * 2
+
+	activeAreaMargin = math_ceil(bgpadding * CONFIG.activeAreaMargin)
+
+	font2 = WG.fonts.getFont(2)
+
+	for i, rectOpts in ipairs(defaultCategoryOpts) do
+		defaultCategoryOpts[i].nameHeight = font2:GetTextHeight(rectOpts.name)
+		defaultCategoryOpts[i].keyTextHeight = font2:GetTextHeight(rectOpts.keyText)
+	end
+
+	backRect.opts.keyTextHeight = font2:GetTextHeight(backRect.opts.name)
+
+	if WG.minimap then
+		minimapHeight = WG.minimap.getHeight()
+	end
+
+	-- if stick to bottom we know cells are 2 row by 6 column
+	if stickToBottom then
+		local posY = math_floor(0.14 * ui_scale * vsy)
+		local posYEnd = 0
+		local posX = ordermenuLeft + widgetSpaceMargin
+		local height = posY
+		builderButtonSize = math_floor(categoryButtonHeight * 1.75)
+
+		rows = 2
+		columns = 6
+		cellSize = math_floor((height - bgpadding) / rows)
+
+		local categoryWidth = 10 * categoryFontSize * ui_scale
+
+		-- assemble rects left to right
+		categoriesRect:set(posX + bgpadding, posYEnd, posX + categoryWidth, posY - bgpadding)
+
+		buildpicsRect:set(
+			categoriesRect.xEnd + bgpadding,
+			posYEnd,
+			categoriesRect.xEnd + (cellSize * columns) + bgpadding,
+			posY - bgpadding
+		)
+
+		backgroundRect:set(posX, posYEnd, buildpicsRect.xEnd + bgpadding, posY)
+
+		local buttonHeight = categoriesRect:getHeight() / 4
+		backRect:set(
+			categoriesRect.x,
+			categoriesRect.yEnd - buttonHeight + bgpadding,
+			categoriesRect.xEnd,
+			categoriesRect.yEnd
+		)
+
+		nextPageRect:set(
+			categoriesRect.x,
+			categoriesRect.y + bgpadding,
+			categoriesRect.xEnd,
+			categoriesRect.y + buttonHeight - bgpadding
+		)
+
+		labBuildModeRect:set(
+			categoriesRect.x,
+			categoriesRect.y + buttonHeight + bgpadding,
+			categoriesRect.xEnd,
+			categoriesRect.yEnd - bgpadding
+		)
+
+		-- start with no width and grow dynamically
+		buildersRect:set(posX, backgroundRect.yEnd, posX, backgroundRect.yEnd + builderButtonSize)
+	else -- if stick to side we know cells are 3 row by 4 column
+		local width = 0.2125 -- hardcoded width to match bottom element
+		width = width / (vsx / vsy) * 1.78 -- make smaller for ultrawide screens
+		width = width * ui_scale
+
+		-- 0.14 is the space required to put this above the bottom-left UI element
+		local posYEnd = math_floor(0.14 * ui_scale * vsy) + widgetSpaceMargin
+		local posY = math_floor(posYEnd + ((0.74 * vsx) * width)) / vsy
+		local posX = 0
+
+		if WG.ordermenu and not WG.ordermenu.getBottomPosition() then
+			local _, oposY, _, oheight = WG.ordermenu.getPosition()
+			if posY > oposY then
+				posY = (oposY - oheight - (widgetSpaceMargin / vsy))
+			end
+		end
+
+		local posXEnd = math_floor(width * vsx)
+
+		-- make pixel aligned
+		width = posXEnd - posX
+
+		categoryButtonHeight = categoryButtonHeight * 1.4
+
+		-- assemble rects, bottom to top
+		categoriesRect:set(
+			posX + bgpadding,
+			posYEnd + bgpadding,
+			posXEnd - bgpadding,
+			posYEnd + categoryButtonHeight + bgpadding
+		)
+
+		rows = 3
+		columns = 4
+		cellSize = math_floor((width - (bgpadding * 2)) / columns)
+
+		buildpicsRect:set(
+			posX + bgpadding,
+			categoriesRect.yEnd,
+			posXEnd - bgpadding,
+			categoriesRect.yEnd + (cellSize * rows)
+		)
+
+		backgroundRect:set(posX, posYEnd, posXEnd, math_floor(buildpicsRect.yEnd + (bgpadding * 1.5)))
+
+		local buttonWidth = (categoriesRect.xEnd - categoriesRect.x) / 3
+		local padding = math_max(1, math_floor(bgpadding * 0.52))
+		backRect:set(
+			categoriesRect.x,
+			categoriesRect.y + padding,
+			categoriesRect.x + buttonWidth - (bgpadding * 2),
+			categoriesRect.yEnd - padding
+		)
+
+		nextPageRect:set(
+			categoriesRect.xEnd - buttonWidth + (2 * bgpadding),
+			categoriesRect.y + padding,
+			categoriesRect.xEnd,
+			categoriesRect.yEnd - padding
+		)
+
+		labBuildModeRect:set(
+			categoriesRect.x,
+			categoriesRect.y + padding,
+			nextPageRect.x - (2 * bgpadding),
+			categoriesRect.yEnd - padding
+		)
+
+		-- start with no width and grow dynamically
+		buildersRect:set(posX, backgroundRect.yEnd, posX, backgroundRect.yEnd + builderButtonSize)
+	end
+
+	cellPadding = math_floor(cellSize * CONFIG.cellPadding)
+	iconPadding = math_max(1, math_floor(cellSize * CONFIG.iconPadding))
+	cornerSize = math_floor(cellSize * CONFIG.iconCornerSize)
+	cellInnerSize = cellSize - cellPadding - cellPadding
+	priceFontSize = math_floor((cellInnerSize * CONFIG.priceFontSize) + 0.5)
+
+	setupCategoryRects()
+	setupCells()
+	setupBuilderRects()
+
+	checkGuishader(true)
+
+	redraw = true
+
+	if buildmenuTex then
+		gl.DeleteTexture(buildmenuBgTex)
+		buildmenuBgTex = nil
+		gl.DeleteTexture(buildmenuTex)
+		buildmenuTex = nil
+	end
+	updateGrid()
+end
+
+-- PERF: It seems we get i18n resources inside draw functions, we should do that in state instead
+function widget:LanguageChanged()
+	backRect.opts.name = BAR.I18N("ui.buildMenu.back")
+	refreshUnitDefs()
+	redraw = true
+end
+
+function widget:GameFrame()
+	-- build progress updates every sym frame
+	updateBuildProgress()
+	-- update factory-under-construction state (stored in backgroundRect.opts to avoid extra module locals)
+	local prevUnderConstruction = backgroundRect.opts.builderUnderConstruction
+	if not activeBuilderID or not builderIsFactory then
+		backgroundRect.opts.builderUnderConstruction = false
+		backgroundRect.opts.builderProgress = 0
+	else
+		local isBeingBuilt, progress = spGetUnitIsBeingBuilt(activeBuilderID)
+		backgroundRect.opts.builderUnderConstruction = isBeingBuilt or false
+		backgroundRect.opts.builderProgress = progress or 0
+	end
+	if prevUnderConstruction ~= backgroundRect.opts.builderUnderConstruction then
+		redraw = true
+	end
+end
+
+-- Sometimes we issue commands the game state hasn't changed yet, to actually
+-- sync state we need to do it a while later.
+--
+-- Unfortunately some callins like UnitCommand are invoked
+-- without having actually updated the internal state of the factory. So they
+-- only schedule a resync instead of syncing state.
+function widget:Update(dt)
+	sec = sec + dt
+	if sec > 0.33 then
+		sec = 0
+		if delayRefresh and Spring.GetGameSeconds() >= delayRefresh then
+			redraw = true
+			doUpdate = true
+			updateGrid()
+			delayRefresh = nil
+		end
+		checkGuishader()
+		if WG.minimap and minimapHeight ~= WG.minimap.getHeight() then
+			widget:ViewResize()
+
+			if not isPregame then
+				updateBuilders() -- builder rects are defined dynamically
+			end
+		end
+		local prevOrdermenuLeft = ordermenuLeft
+		local prevOrdermenuHeight = ordermenuHeight
+		if WG.ordermenu then
+			local oposX, _, owidth, oheight = WG.ordermenu.getPosition()
+			ordermenuLeft = math_floor((oposX + owidth) * vsx)
+			ordermenuHeight = oheight
+		end
+		if
+			not prevAdvplayerlistLeft
+			or advplayerlistLeft ~= prevAdvplayerlistLeft
+			or not prevOrdermenuLeft
+			or ordermenuLeft ~= prevOrdermenuLeft
+			or not prevOrdermenuHeight
+			or ordermenuHeight ~= prevOrdermenuHeight
+		then
+			widget:ViewResize()
+			if not isPregame then
+				updateBuilders() -- builder rects are defined dynamically
+			end
+			prevAdvplayerlistLeft = advplayerlistLeft
+		end
+
+		disableInput = CONFIG.disableInputWhenSpec and isSpec
+		if Spring.IsGodModeEnabled() then
+			disableInput = false
+		end
+	end
+
+	local prevBuildmenuShows = buildmenuShows
+	if not (isPregame or activeBuilder or alwaysShow) then
+		buildmenuShows = false
+	else
+		buildmenuShows = true
+	end
+
+	if WG.guishader and prevBuildmenuShows ~= buildmenuShows and dlistGuishader then
+		if buildmenuShows then
+			WG.guishader.InsertDlist(dlistGuishader, "buildmenu")
+		else
+			WG.guishader.RemoveDlist("buildmenu")
+		end
+	end
+
+	if not buildmenuShows then
+		return
+	end
+
+	if activeBuilder then
+		updateHoverState()
+	end
+
+	local prevActiveCmd = activeCmd
+
+	-- PERF: Maybe make this slow-ish-update?
+	if isPregame then
+		local previousStartDefID = startDefID
+		startDefID = Spring.GetTeamRulesParam(myTeamID, "startUnit")
+
+		-- Don't update unless defid has changed
+		doUpdate = previousStartDefID ~= startDefID
+	else
+		activeCmd = select(2, spGetActiveCommand())
+
+		if activeCmd ~= prevActiveCmd then
+			doUpdate = true
+		end
+	end
+
+	if doUpdate or (doUpdateClock and doUpdateClock > os.clock()) then
+		refreshCommands()
+
+		doUpdateClock = nil
+		doUpdate = nil
+	end
+
+	cancelWarning.update()
+end
+
+-------------------------------------------------------------------------------
+--- INTERFACE DRAWING
+-------------------------------------------------------------------------------
+
+local function drawBuildMenuBg()
+	local height = backgroundRect.yEnd - backgroundRect.y
+	local posY = backgroundRect.y
+	UiElement(
+		backgroundRect.x,
+		backgroundRect.y,
+		backgroundRect.xEnd,
+		backgroundRect.yEnd,
+		(backgroundRect.x > 0 and (#builderRects > 1 and 0 or 1) or 0),
+		1,
+		((posY - height > 0 or backgroundRect.x <= 0) and 1 or 0),
+		0
+	)
+
+	if selectedBuildersCount > 1 and activeBuilder then
+		height = backgroundRect:getHeight()
+		UiElement(
+			buildersRect.x,
+			buildersRect.y,
+			buildersRect.xEnd + bgpadding * 2,
+			buildersRect.yEnd + bgpadding + (iconMargin * 2),
+			(backgroundRect.x > 0 and 1 or 0),
+			1,
+			((posY - height > 0 or backgroundRect.x <= 0) and 1 or 0),
+			0,
+			1,
+			1,
+			0
+		)
+	end
+end
+
+local function drawButton(rect)
+	local disabled = false
+	local highlight = rect.opts.current
+	local hovered = rect.opts.hovered
+
+	local padding = math_max(1, math_floor(bgpadding * 0.52))
+
+	local color = highlight and 0.2 or 0
+
+	local color1 = { color, color, color, math.clamp(ui_opacity * 1.25, 0.55, 0.95) } -- bottom
+	local color2 = { color, color, color, math.clamp(ui_opacity * 1.25, 0.55, 0.95) } -- top
+
+	if highlight then
+		gl.Blending(GL_SRC_ALPHA, GL_ONE)
+		gl.Color(0, 0, 0, 0.1)
+	end
+
+	UiButton(rect.x, rect.y, rect.xEnd, rect.yEnd, 1, 1, 1, 1, 1, 1, 1, 1, nil, color1, color2, padding)
+
+	local dim = disabled and 0.4 or 1.0
+
+	if rect.opts.icon then
+		local iconSize = math.min(math.floor(rect:getHeight() * 1.1), categoryButtonHeight)
+		local icon = ":l:" .. rect.opts.icon
+		gl.Color(dim, dim, dim, 0.9)
+		gl.Texture(icon)
+		gl.BeginEnd(
+			GL.QUADS,
+			TexRectRound,
+			rect.x + (bgpadding / 2),
+			rect.yEnd - iconSize,
+			rect.x + iconSize,
+			rect.yEnd - (bgpadding / 2),
+			0,
+			0,
+			0,
+			0,
+			0,
+			0.05
+		) -- this method with a lil zoom prevents faint edges around the image
+		--	gl.TexRect(px, sy - iconSize, px + iconSize, sy)
+		gl.Texture(false)
+	end
+
+	if highlight then
+		gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	end
+
+	if hovered then
+		-- gloss highlight
+		gl.Blending(GL_SRC_ALPHA, GL_ONE)
+		RectRound(
+			rect.x,
+			rect.yEnd - ((rect.yEnd - rect.y) * 0.42),
+			rect.xEnd,
+			rect.yEnd,
+			padding * 1.5,
+			2,
+			2,
+			0,
+			0,
+			{ 1, 1, 1, 0.035 },
+			{ 1, 1, 1, (disableInput and 0.11 or 0.24) }
+		)
+		RectRound(
+			rect.x,
+			rect.y,
+			rect.xEnd,
+			rect.y + ((rect.yEnd - rect.y) * 0.5),
+			padding * 1.5,
+			0,
+			0,
+			2,
+			2,
+			{ 1, 1, 1, (disableInput and 0.035 or 0.075) },
+			{ 1, 1, 1, 0 }
+		)
+		gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	end
+end
+
+local function drawHighlights()
+	if highlight.count == 0 or not next(highlight.items) then
+		return
+	end
+	local now = os.clock()
+	for uDefID, hl in pairs(highlight.items) do
+		local cellId = uDefCellIds[uDefID]
+		local rect = cellId and cellRects[cellId]
+		if rect and rect.opts and rect.opts.uDefID == uDefID then
+			local color = hl.color or highlight.defaultColor
+			local r, g, b = color[1], color[2], color[3]
+			local t = now - (hl.startTime or now)
+			local pulse = 0.5 + 0.5 * math.sin(t * 4.5)
+
+			local x1 = rect.x + cellPadding + iconPadding
+			local y1 = rect.y + cellPadding + iconPadding
+			local x2 = rect.xEnd - cellPadding - iconPadding
+			local y2 = rect.yEnd - cellPadding - iconPadding
+
+			-- Brighten the unit icon with an additive overlay
+			local brighten = 0.10 + 0.22 * pulse
+			gl.Blending(GL_SRC_ALPHA, GL_ONE)
+			gl.Color(r * brighten, g * brighten, b * brighten, 1)
+			gl.Texture("#" .. uDefID)
+			UiUnit(x1, y1, x2, y2, cornerSize, 1, 1, 1, 1, defaultCellZoom)
+			gl.Texture(false)
+
+			-- Feathered inner outline ring (proper chamfered corners)
+			local thickness = math_max(2, math_floor((x2 - x1) * 0.04))
+			local outlineAlpha = 0.45 + 0.5 * pulse
+			local cs = cornerSize
+			local outerCol = { r, g, b, outlineAlpha }
+			local innerCol = { r, g, b, outlineAlpha * 0.85 }
+			WG.FlowUI.Draw.RectRoundOutline(x1, y1, x2, y2, cs, thickness, 1, 1, 1, 1, outerCol, innerCol)
+
+			-- Soft inner glow fading inward
+			local glowAlpha = 0.10 + 0.20 * pulse
+			local glowWidth = thickness * 3
+			WG.FlowUI.Draw.RectRoundOutline(
+				x1 + thickness,
+				y1 + thickness,
+				x2 - thickness,
+				y2 - thickness,
+				math_max(0, cs - thickness),
+				glowWidth,
+				1,
+				1,
+				1,
+				1,
+				{ r, g, b, glowAlpha },
+				{ r, g, b, 0 }
+			)
+
+			gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+		end
+	end
+end
+
+local function drawCell(rect)
+	-- empty cell
+	if not rect.opts.uDefID then
+		local color = { 0.1, 0.1, 0.1, 0.7 }
+		local pad = cellPadding + iconPadding
+		RectRound(rect.x + pad, rect.y + pad, rect.xEnd - pad, rect.yEnd - pad, cornerSize, 1, 1, 1, 1, color, color)
+		return
+	end
+
+	local uid = rect.opts.uDefID
+	local unitTexture = "#" .. uid
+	if not gridmenuUnitpicWarm.warmed[uid] then
+		tracy.ZoneBeginN("W:GridMenu:DrawCell:TextureWarmFallback")
+		if gl.Texture(unitTexture) then
+			gridmenuUnitpicWarm.warmed[uid] = true
+		end
+		gl.Texture(false)
+		tracy.ZoneEnd()
+	end
+	local disabled = rect.opts.disabled
+	local underConstructionDim = backgroundRect.opts.builderUnderConstruction and not rect.opts.hovered and not disabled
+	local queuenr = rect.opts.queuenr
+	if queuenr and WG.Quotas then
+		-- Ignore the count from the quota widget.
+		queuenr = queuenr - WG.Quotas.getQuotaOrderCount(activeBuilderID, uid)
+		if queuenr < 1 then
+			queuenr = nil
+		end
+	end
+	local quotaNumber
+	if WG.Quotas and WG.Quotas.getQuotas()[activeBuilderID] and WG.Quotas.getQuotas()[activeBuilderID][uid] then
+		quotaNumber = WG.Quotas.getQuotas()[activeBuilderID][uid]
+	end
+
+	local cellColor
+	local usedZoom = defaultCellZoom
+
+	local metalPrice = rect.opts.metalPrice
+	local energyPrice = rect.opts.energyPrice
+
+	if not metalPrice and rect.opts.hovered then
+		-- When hovered we always show prices
+		metalPrice = formatPrice(rect.opts.metalCost)
+		energyPrice = formatPrice(rect.opts.energyCost)
+	end
+
+	if disabled then
+	elseif rect.opts.clicked then
+		cellColor = clickCellColor
+		usedZoom = clickCellZoom
+	elseif rect.opts.selected then
+		cellColor = selectedCellColor
+		usedZoom = selectedCellZoom
+	elseif rect.opts.hovered then
+		cellColor = hoverCellColor
+		usedZoom = hoverCellZoom
+	end
+
+	-- unit icon
+	local texprefix = ""
+	if disabled then
+		gl.Color(0.4, 0.4, 0.4, 1)
+		texprefix = "t0.3,0.3,0.3"
+	elseif underConstructionDim then
+		gl.Color(0.77, 0.77, 0.77, 1)
+		texprefix = "t0.63,0.63,0.63"
+	else
+		gl.Color(1, 1, 1, 1)
+	end
+
+	local groupIcon = rect.opts.groupIcon
+	local unitGroup = rect.opts.unitGroup
+
+	UiUnit(
+		rect.x + cellPadding + iconPadding,
+		rect.y + cellPadding + iconPadding,
+		rect.xEnd - cellPadding - iconPadding,
+		rect.yEnd - cellPadding - iconPadding,
+		cornerSize,
+		1,
+		1,
+		1,
+		1,
+		usedZoom,
+		nil,
+		disabled and 0 or nil,
+		unitTexture,
+		groupIcon and (groupIcon and ":l" .. texprefix .. ":" .. groupIcon or nil) or nil,
+		unitGroup and (unitGroup and ":l" .. texprefix .. ":" .. unitGroup or nil) or nil,
+		{ rect.opts.metalCost, rect.opts.energyCost },
+		tonumber(queuenr)
+	)
+
+	-- LOCAL MOD (2026-09-27): team-color icon recolor, drawn right after the
+	-- icon above so it lines up with (and sits on top of) the real icon --
+	-- see the shader/DrawTeamColorRecolor section near widget:Initialize for
+	-- the actual recolor logic. Skipped while disabled/grayed-out, matching
+	-- how the icon itself is already desaturated in that state.
+	if not disabled then
+		DrawTeamColorRecolor(rect, unitTexture, usedZoom, uid)
+	end
+
+	-- colorize/highlight unit icon
+	if cellColor then
+		gl.Blending(GL.DST_ALPHA, GL.ONE_MINUS_SRC_COLOR)
+		gl.Color(cellColor[1], cellColor[2], cellColor[3], cellColor[4])
+		gl.Texture(unitTexture)
+		UiUnit(
+			rect.x + cellPadding + iconPadding,
+			rect.y + cellPadding + iconPadding,
+			rect.xEnd - cellPadding - iconPadding,
+			rect.yEnd - cellPadding - iconPadding,
+			cornerSize,
+			1,
+			1,
+			1,
+			1,
+			usedZoom
+		)
+		if cellColor[4] > 0 then
+			gl.Blending(GL_SRC_ALPHA, GL_ONE)
+			UiUnit(
+				rect.x + cellPadding + iconPadding,
+				rect.y + cellPadding + iconPadding,
+				rect.xEnd - cellPadding - iconPadding,
+				rect.yEnd - cellPadding - iconPadding,
+				cornerSize,
+				1,
+				1,
+				1,
+				1,
+				usedZoom
+			)
+		end
+		gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	end
+	gl.Texture(false)
+
+	-- price
+	if metalPrice then
+		local costOverride = costOverrides and costOverrides[uid]
+
+		if costOverride then
+			local topValue = costOverride.top and costOverride.top.value or metalPrice
+			local bottomValue = costOverride.bottom and costOverride.bottom.value or energyPrice
+
+			if costOverride.top and not costOverride.top.disabled then
+				local costColor = costOverride.top.color or "\255\100\255\100"
+				if disabled then
+					costColor = costOverride.top.colorDisabled or "\255\100\200\100"
+				end
+				local costPrice = formatPrice(math.floor(topValue))
+				local costPriceText = costColor .. costPrice
+				font2:Print(
+					costPriceText,
+					rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+					rect.y + cellPadding + (priceFontSize * 1.35),
+					priceFontSize,
+					"ro"
+				)
+			elseif not costOverride.top then
+				local metalColor = disabled and "\255\125\125\125" or "\255\245\245\245"
+				local metalPriceText = metalColor .. metalPrice
+				font2:Print(
+					metalPriceText,
+					rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+					rect.y + cellPadding + (priceFontSize * 1.35),
+					priceFontSize,
+					"ro"
+				)
+			end
+
+			if costOverride.bottom and not costOverride.bottom.disabled then
+				local costColor = costOverride.bottom.color or "\255\255\255\000"
+				if disabled then
+					costColor = costOverride.bottom.colorDisabled or "\255\135\135\135"
+				end
+				local costPrice = formatPrice(math.floor(bottomValue))
+				local costPriceText = costColor .. costPrice
+				font2:Print(
+					costPriceText,
+					rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+					rect.y + cellPadding + (priceFontSize * 0.35),
+					priceFontSize,
+					"ro"
+				)
+			elseif not costOverride.bottom then
+				local energyColor = disabled and "\255\135\135\135" or "\255\255\255\000"
+				local energyPriceText = energyColor .. energyPrice
+				font2:Print(
+					energyPriceText,
+					rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+					rect.y + cellPadding + (priceFontSize * 0.35),
+					priceFontSize,
+					"ro"
+				)
+			end
+		else
+			local metalColor = disabled and "\255\125\125\125" or "\255\245\245\245"
+			local energyColor = disabled and "\255\135\135\135" or "\255\255\255\000"
+			local metalPriceText = metalColor .. metalPrice
+			local energyPriceText = energyColor .. energyPrice
+			font2:Print(
+				metalPriceText,
+				rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+				rect.y + cellPadding + (priceFontSize * 1.35),
+				priceFontSize,
+				"ro"
+			)
+			font2:Print(
+				energyPriceText,
+				rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+				rect.y + cellPadding + (priceFontSize * 0.35),
+				priceFontSize,
+				"ro"
+			)
+		end
+	end
+
+	-- hotkey draw
+	local hotkeyText = rect.opts.hotkey
+
+	if hotkeyText then
+		local keyFontSize = priceFontSize * 1.1
+		local hotkeyColor = disabled and "\255\100\100\100" or "\255\215\255\215"
+		font2:Print(
+			hotkeyColor .. hotkeyText,
+			rect.xEnd - cellPadding - (cellInnerSize * 0.048),
+			rect.yEnd - cellPadding - keyFontSize,
+			keyFontSize,
+			"ro"
+		)
+	end
+
+	-- factory queue number
+	if queuenr then
+		local queueFontSize = cellInnerSize * 0.29
+		local textPad = math_floor(cellInnerSize * 0.1)
+		local textWidth = font2:GetTextWidth(queuenr) * queueFontSize
+		RectRound(
+			rect.x,
+			rect.yEnd - cellPadding - iconPadding - math_floor(cellInnerSize * 0.365),
+			rect.x + textWidth + (textPad * 2), -- double pad, for a pad at the start and end
+			rect.yEnd - cellPadding - iconPadding,
+			cornerSize * 3.3,
+			0,
+			0,
+			1,
+			0,
+			{ 0.15, 0.15, 0.15, 0.95 },
+			{ 0.25, 0.25, 0.25, 0.95 }
+		)
+		font2:Print(
+			"\255\190\255\190" .. queuenr,
+			rect.x + cellPadding + textPad,
+			rect.y + cellPadding + math_floor(cellInnerSize * 0.735),
+			queueFontSize,
+			"o"
+		)
+	end
+
+	if quotaNumber and quotaNumber ~= 0 then
+		local quotaText = WG.Quotas.getUnitAmount(activeBuilderID, uid) .. "/" .. quotaNumber
+		local queueFontSize = cellInnerSize * 0.29
+		local textPad = math_floor(cellInnerSize * 0.1)
+		local textWidth = font2:GetTextWidth(quotaText) * queueFontSize
+		if textWidth > 0.75 * cellInnerSize then
+			local newFontSize = queueFontSize * 0.75 * cellInnerSize / textWidth
+			textPad = textPad * newFontSize / queueFontSize
+			textWidth = font2:GetTextWidth(quotaText) * newFontSize
+			queueFontSize = newFontSize
+		end
+		RectRound(
+			rect.x,
+			rect.y + cellPadding + iconPadding,
+			rect.x + textWidth + (textPad * 2), -- double pad, for a pad at the start and end
+			rect.y + cellPadding + iconPadding + math_floor(cellInnerSize * 0.365),
+			cornerSize * 3.3,
+			0,
+			1,
+			0,
+			0,
+			{ 0.15, 0.15, 0.15, 0.95 },
+			{ 0.25, 0.25, 0.25, 0.95 }
+		)
+		font2:Print(
+			"\255\255\130\190" .. quotaText,
+			rect.x + cellPadding + textPad,
+			rect.y
+				+ cellPadding
+				+ (math_floor(cellInnerSize * 0.365) - font2:GetTextHeight(quotaNumber) * queueFontSize) / 2,
+			queueFontSize,
+			"o"
+		)
+	end
+end
+
+local function drawButtonHotkey(rect)
+	if not rect or not rect.opts.keyText then
+		return
+	end
+
+	local keyFontHeight = rect.opts.keyTextHeight * hotkeyFontSize
+	local keyFontHeightOffset = keyFontHeight * 0.34
+
+	local textPadding = bgpadding * 2
+
+	local text = "\255\215\255\215" .. rect.opts.keyText
+	font2:Print(
+		text,
+		rect.xEnd - textPadding,
+		(rect.y - (rect.y - rect.yEnd) / 2) - keyFontHeightOffset,
+		hotkeyFontSize,
+		"ro"
+	)
+end
+
+local function drawCategories()
+	if currentCategory then
+		local rect = currentCategoryRect
+
+		local fontHeight = rect.opts.nameHeight * categoryFontSize
+		local fontHeightOffset = fontHeight * 0.34
+
+		font2:Print(
+			rect.opts.name,
+			rect.x + (bgpadding * 7),
+			(rect.y + rect:getHeight() / 2) - fontHeightOffset,
+			categoryFontSize,
+			"o"
+		)
+
+		drawButton(rect)
+
+		return
+	end
+
+	for _, cat in pairs(categories) do
+		local rect = catRects[cat]
+
+		local fontHeight = rect.opts.nameHeight * categoryFontSize
+		local fontHeightOffset = fontHeight * 0.34
+		font2:Print(
+			rect.opts.name,
+			rect.x + (bgpadding * 7),
+			(rect.y + rect:getHeight() / 2) - fontHeightOffset,
+			categoryFontSize,
+			"o"
+		)
+
+		if not rect.current then
+			drawButtonHotkey(rect)
+		end
+
+		drawButton(rect)
+	end
+end
+
+local function drawBackButtons()
+	-- Back button
+	local backText = backRect.opts.name
+	local buttonWidth = backRect:getWidth()
+	local buttonHeight = backRect:getHeight()
+	local heightOffset = backRect.yEnd - font2:GetTextHeight(backText) * pageFontSize * 0.35 - buttonHeight / 2
+	font2:Print(backText, backRect.x + (buttonWidth * 0.25), heightOffset, pageFontSize, "co")
+	if not stickToBottom then
+		font2:Print("⟵", backRect.x + (bgpadding * 2), heightOffset, pageFontSize, "o")
+	end
+
+	drawButtonHotkey(backRect)
+	drawButton(backRect)
+end
+
+local function drawPageButtons()
+	-- Page button
+	local nextKeyText = keyConfig.sanitizeKey(nextPageKey, currentLayout)
+	local nextPageText = "\255\245\245\245" .. "Page " .. currentPage .. "/" .. pages .. "  🠚"
+
+	-- PERF: Move to a more static place, we only need to set this when viewresize or reloadbindings
+	nextPageRect.opts.keyText = nextKeyText
+	nextPageRect.opts.keyTextHeight = font2:GetTextHeight(nextKeyText)
+
+	local buttonHeight = nextPageRect:getHeight()
+	local fontHeight = font2:GetTextHeight(nextPageText) * pageFontSize
+	local fontHeightOffset = fontHeight * 0.34
+
+	font2:Print(
+		nextPageText,
+		nextPageRect.x + (bgpadding * 3),
+		(nextPageRect.y + (buttonHeight / 2)) - fontHeightOffset,
+		pageFontSize,
+		"o"
+	)
+
+	drawButtonHotkey(nextPageRect)
+	drawButton(nextPageRect)
+end
+
+local function drawBuildModeButtons()
+	if labBuildModeActive then
+		local fontSize = pageFontSize * 1.2
+		local buildModeText = "\255\245\245\245" .. "Build Mode"
+		local containerHeight = categoriesRect:getHeight()
+		local fontHeight = font2:GetTextHeight(buildModeText) * fontSize
+		local fontWidth = font2:GetTextWidth(buildModeText) * fontSize
+		local center = (categoriesRect:getWidth() / 2) + categoriesRect.x
+		local left = center - (fontWidth / 2)
+		local fontHeightOffset = fontHeight * 0.3
+		font2:Print(buildModeText, left, (categoriesRect.y + (containerHeight / 2)) - fontHeightOffset, fontSize, "o")
+
+		return
+	end
+
+	local hotkeys = ""
+	for i = 1, #categoryKeys do
+		hotkeys = hotkeys .. keyConfig.sanitizeKey(categoryKeys[i], currentLayout)
+	end
+
+	if stickToBottom then
+		local rect = labBuildModeRect
+		local fullText = "\255\245\245\245" .. "Enable Build Mode"
+		local buildModeText, _ =
+			font2:WrapText(fullText, categoriesRect:getWidth() - (bgpadding * 2), nil, pageFontSize * 1.1)
+		local buttonHeight = rect:getHeight()
+		local fontHeight = font2:GetTextHeight(buildModeText) * pageFontSize
+		local fontHeightOffset = fontHeight * 0.24
+		font2:Print(
+			buildModeText,
+			rect.x + (bgpadding * 3),
+			(rect.y + (buttonHeight / 2)) - fontHeightOffset,
+			pageFontSize,
+			"n"
+		)
+
+		-- draw hotkeys differently for this button
+		local keyFontHeight = font2:GetTextHeight(hotkeys) * hotkeyFontSize
+		local keyFontWidth = font2:GetTextWidth(hotkeys) * hotkeyFontSize
+		local center = (categoriesRect:getWidth() / 2) + categoriesRect.x
+		local left = center - (keyFontWidth / 2)
+
+		local text = "\255\215\255\215" .. hotkeys
+		font2:Print(text, left, rect.y + (keyFontHeight * 0.8), hotkeyFontSize, "o")
+		drawButton(labBuildModeRect)
+	else
+		local buildModeText = "\255\245\245\245" .. "Enable Build Mode"
+		local buttonHeight = labBuildModeRect:getHeight()
+		local fontHeight = font2:GetTextHeight(buildModeText) * pageFontSize
+		local fontHeightOffset = fontHeight * 0.24
+		font2:Print(
+			buildModeText,
+			labBuildModeRect.x + (bgpadding * 3),
+			(labBuildModeRect.y + (buttonHeight / 2)) - fontHeightOffset,
+			pageFontSize,
+			"o"
+		)
+
+		labBuildModeRect.opts.keyText = hotkeys
+		labBuildModeRect.opts.keyTextHeight = font2:GetTextHeight(hotkeys)
+
+		drawButtonHotkey(labBuildModeRect)
+		drawButton(labBuildModeRect)
+	end
+end
+
+local function drawBuilder(rect)
+	local zoom = 0.05
+	local highlightOpacity = 0
+	local hovered = rect.opts.hovered
+	local count = rect.opts.count
+	local unitDefID = rect.opts.uDefID
+	local lightness = rect.opts.current and 1.0 or 0.5
+
+	-- draw button
+
+	lightness = hovered and lightness + 0.25 or lightness
+	zoom = hovered and zoom + 0.1 or zoom
+	local rectSize = rect.xEnd - rect.x
+
+	gl.Color(lightness, lightness, lightness, 1)
+	UiUnit(
+		rect.x,
+		rect.y,
+		rect.xEnd,
+		rect.yEnd,
+		math.ceil(bgpadding * 0.5),
+		1,
+		1,
+		1,
+		1,
+		zoom,
+		nil,
+		math_max(0.1, highlightOpacity or 0.1),
+		"#" .. unitDefID,
+		nil,
+		nil,
+		nil,
+		nil
+	)
+
+	-- builder count number
+	if count > 1 then
+		local countFontSize = rectSize * 0.3
+		local pad = math_floor(rectSize * 0.03)
+		font2:Print(
+			"\255\240\240\240" .. count,
+			rect.x + (pad * 2),
+			rect.y + pad + math_floor(countFontSize * 2.2),
+			countFontSize,
+			"o"
+		)
+	end
+
+	if highlightOpacity then
+		gl.Blending(GL_SRC_ALPHA, GL_ONE)
+		gl.Color(1, 1, 1, highlightOpacity)
+		RectRound(
+			rect.x,
+			rect.y,
+			rect.xEnd,
+			rect.yEnd,
+			math_min(math_max(1, math_floor((rect.xEnd - rect.x) * 0.024)), math_floor((vsy * 0.0015) + 0.5))
+		)
+		gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	end
+
+	-- construction progress overlay on the active builder icon
+	if rect.opts.current and backgroundRect.opts.builderUnderConstruction then
+		gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+		RectRoundProgress(
+			rect.x,
+			rect.y,
+			rect.xEnd,
+			rect.yEnd,
+			math_min(math_max(1, math_floor((rect.xEnd - rect.x) * 0.024)), math_floor((vsy * 0.0015) + 0.5)),
+			1 - (backgroundRect.opts.builderProgress or 0),
+			{ 0.05, 0.05, 0.05, 0.72 }
+		)
+	end
+end
+
+local function drawBuilders()
+	-- draw builders
+	for i = 1, selectedBuildersCount do
+		drawBuilder(builderRects[i])
+	end
+
+	-- draw next builder button
+	local rectHeight = nextBuilderRect:getHeight()
+	local fontSize = rectHeight * 1.2
+	local textHeight = nextBuilderRect.opts.nameHeight * fontSize
+
+	font2:Print(
+		"\255\255\255\255" .. nextBuilderRect.opts.name,
+		nextBuilderRect.x + math_floor(rectHeight * 0.2),
+		nextBuilderRect.y + (rectHeight / 2) - math_floor(textHeight / 2),
+		fontSize,
+		"o"
+	)
+
+	drawButton(nextBuilderRect)
+	drawButtonHotkey(nextBuilderRect)
+end
+
+local function drawGrid()
+	for _, cellRect in ipairs(cellRects) do
+		drawCell(cellRect)
+	end
+end
+
+local function drawBuildMenu()
+	font2:Begin(true)
+	font2:SetTextColor(1, 1, 1, 1)
+	font2:SetOutlineColor(0, 0, 0, 1)
+
+	local drawBackScreen = (currentCategory and not builderIsFactory)
+		or (builderIsFactory and useLabBuildMode and labBuildModeActive)
+
+	if activeBuilder and not builderIsFactory then
+		drawCategories()
+	end
+
+	drawGrid()
+
+	if drawBackScreen then
+		drawBackButtons()
+	end
+
+	if pages > 1 then
+		drawPageButtons()
+	end
+
+	if selectedBuildersCount > 1 and activeBuilder then
+		drawBuilders()
+	end
+
+	-- under-construction warning replaces/precedes other factory controls
+	if builderIsFactory and backgroundRect.opts.builderUnderConstruction then
+		local warningText = "\255\255\200\50"
+			.. BAR.I18N("ui.buildMenu.underConstruction", { default = "Under Construction" })
+		local fontSize = pageFontSize * 1.1
+		local containerHeight = categoriesRect:getHeight()
+		local fontHeight = font2:GetTextHeight(warningText) * fontSize
+		local fontWidth = font2:GetTextWidth(warningText) * fontSize
+		local center = (categoriesRect:getWidth() / 2) + categoriesRect.x
+		local left = center - (fontWidth / 2)
+		local fontHeightOffset = fontHeight * 0.3
+		font2:Print(warningText, left, (categoriesRect.y + (containerHeight / 2)) - fontHeightOffset, fontSize, "o")
+	elseif builderIsFactory and useLabBuildMode then
+		-- lab build mode button
+		drawBuildModeButtons()
+	end
+
+	font2:End()
+end
+
+local function drawBuildProgress(cellRect)
+	if not cellRect.opts.progress then
+		return
+	end
+
+	local x1 = cellRect.x + cellPadding + iconPadding
+	local y1 = cellRect.y + cellPadding + iconPadding
+	local x2 = cellRect.xEnd - cellPadding - iconPadding
+	local y2 = cellRect.yEnd - cellPadding - iconPadding
+	local cornerRadius = cellSize * 0.03
+
+	RectRoundProgress(
+		x1,
+		y1,
+		x2,
+		y2,
+		cornerRadius,
+		1 - cellRect.opts.progress, -- make the effect wind counter-clockwise
+		{ 0.08, 0.08, 0.08, 0.6 }
+	)
+
+	-- Fill the sector already built, so the red covers exactly the progress an alt-click
+	-- would throw away and grows with it. RectRoundProgress only ever winds one way from
+	-- the top, so mirror it across the cell to land in the gap the shading leaves rather
+	-- than on top of the shading itself.
+	if cancelWarning.active then
+		gl.PushMatrix()
+		gl.Translate(x1 + x2, 0, 0)
+		gl.Scale(-1, 1, 1)
+		RectRoundProgress(x1, y1, x2, y2, cornerRadius, cellRect.opts.progress, cancelWarning.color)
+		gl.PopMatrix()
+	end
+end
+
+-------------------------------------------------------------------------------
+--- INPUT HANDLING
+-------------------------------------------------------------------------------
+
+function widget:KeyPress(key, modifier, isRepeat)
+	if key == KEYSYMS.ESCAPE then
+		if currentCategory then
+			clearCategory()
+			return true
+		elseif useLabBuildMode and labBuildModeActive then
+			setLabBuildMode(false)
+			updateGrid()
+			return true
+		end
+	end
+end
+
+function widget:KeyRelease(key)
+	if key ~= KEYSYMS.LSHIFT then
+		return
+	end
+
+	clearCategory()
+end
+
+function widget:MousePress(x, y, button)
+	if Spring.IsGUIHidden() then
+		return
+	end
+	if WG.topbar and WG.topbar.showingQuit() then
+		return
+	end
+
+	if
+		(buildmenuShows and backgroundRect:contains(x, y))
+		or (selectedBuildersCount > 1 and (buildersRect:contains(x, y) or nextBuilderRect:contains(x, y)))
+	then
+		if activeBuilder then
+			if pages > 1 then
+				if nextPageRect and nextPageRect:contains(x, y) then
+					Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+					nextPageHandler()
+					return true
+				end
+			end
+
+			if currentCategory or labBuildModeActive then
+				if backRect and backRect:contains(x, y) then
+					Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+					clearCategory()
+					return true
+				end
+			end
+
+			if useLabBuildMode and builderIsFactory and not labBuildModeActive then
+				if labBuildModeRect:contains(x, y) then
+					Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+					setLabBuildMode(true)
+					updateGrid()
+					return true
+				end
+			end
+
+			for i = 1, selectedBuildersCount do
+				local rect = builderRects[i]
+
+				if rect:contains(x, y) then
+					setActiveBuilder(i)
+					refreshCommands()
+					return true
+				end
+			end
+
+			if nextBuilderRect:contains(x, y) then
+				cycleBuilder()
+				refreshCommands()
+				return true
+			end
+
+			if not disableInput then
+				if not currentCategory and not builderIsFactory then
+					for cat, catRect in pairs(catRects) do
+						if catRect:contains(x, y) then
+							setCurrentCategory(cat)
+							Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+							return true
+						end
+					end
+				end
+
+				for _, cellRect in pairs(cellRects) do
+					local unitDefID = cellRect.opts.uDefID
+					if
+						unitDefID
+						and unitTranslatedHumanName[unitDefID]
+						and cellRect:contains(x, y)
+						and not cellRect.opts.disabled
+					then
+						local alt, ctrl, meta, shift = Spring.GetModKeyState()
+						if button ~= 3 then
+							if
+								builderIsFactory
+								and WG.Quotas
+								and WG.Quotas.isOnQuotaMode(activeBuilderID)
+								and not alt
+							then
+								local amount = 1
+								if ctrl then
+									amount = amount * modKeyMultiplier.click.ctrl
+								end
+								if shift then
+									amount = amount * modKeyMultiplier.click.shift
+								end
+								updateQuotaNumber(unitDefID, amount)
+								return true
+							end
+							Spring.PlaySoundFile(CONFIG.sound_queue_add, 0.75, "ui")
+
+							if isPregame then
+								setPregameBlueprint(unitDefID)
+							elseif spGetCmdDescIndex(-unitDefID) then
+								pickBlueprint(unitDefID)
+							end
+						elseif builderIsFactory and spGetCmdDescIndex(-unitDefID) then
+							local function decreaseQuota()
+								local amount = modKeyMultiplier.click.right
+								if ctrl then
+									amount = amount * modKeyMultiplier.click.ctrl
+								end
+								if shift then
+									amount = amount * modKeyMultiplier.click.shift
+								end
+								updateQuotaNumber(unitDefID, amount)
+							end
+
+							local function decreaseQueue()
+								Spring.PlaySoundFile(CONFIG.sound_queue_rem, 0.75, "ui")
+								setActiveCommand(spGetCmdDescIndex(-unitDefID), 3, false, true)
+							end
+
+							local isQuotaMode = WG.Quotas and WG.Quotas.isOnQuotaMode(activeBuilderID) and not alt
+							-- Ignore the count from the quota widget.
+							local queueCount = tonumber(cellRect.opts.queuenr or 0)
+								- (WG.Quotas and WG.Quotas.getQuotaOrderCount(activeBuilderID, unitDefID) or 0)
+							local quotas = WG.Quotas and WG.Quotas.getQuotas()
+							local currentQuota = (
+								quotas
+								and quotas[activeBuilderID]
+								and quotas[activeBuilderID][unitDefID]
+							) or 0
+
+							if isQuotaMode then
+								if currentQuota > 0 then
+									decreaseQuota()
+								else
+									decreaseQueue()
+								end
+							else
+								if queueCount > 0 then
+									decreaseQueue()
+								else
+									decreaseQuota()
+								end
+							end
+						end
+
+						return true
+					end
+				end
+			end
+			return true
+		elseif alwaysShow then
+			return true
+		end
+	elseif activeBuilder and currentCategory and button == 3 then
+		clearCategory()
+		return true
+	end
+end
+
+-------------------------------------------------------------------------------
+--- DRAW LISTS
+-------------------------------------------------------------------------------
+
+local function checkGuishaderBuilders()
+	if selectedBuildersCount > 1 and activeBuilder then
+		if prevSelectedBuildersCount ~= selectedBuildersCount then
+			prevSelectedBuildersCount = selectedBuildersCount
+			if dlistGuishaderBuilders then
+				dlistGuishaderBuilders = gl.DeleteList(dlistGuishaderBuilders)
+				dlistGuishaderBuildersNext = gl.DeleteList(dlistGuishaderBuildersNext)
+			end
+			dlistGuishaderBuilders = gl.CreateList(function()
+				RectRound(
+					buildersRect.x,
+					buildersRect.y,
+					buildersRect.xEnd + (bgpadding * 2),
+					buildersRect.yEnd + bgpadding + (iconMargin * 2),
+					elementCorner
+				)
+			end)
+			WG.guishader.InsertDlist(dlistGuishaderBuilders, "buildmenubuilders")
+			dlistGuishaderBuildersNext = gl.CreateList(function()
+				RectRound(
+					nextBuilderRect.x,
+					nextBuilderRect.y,
+					nextBuilderRect.xEnd,
+					nextBuilderRect.yEnd,
+					elementCorner * 0.5
+				)
+			end)
+			WG.guishader.InsertDlist(dlistGuishaderBuildersNext, "buildmenubuildersnext")
+		end
+	elseif dlistGuishaderBuilders then
+		prevSelectedBuildersCount = 0
+		WG.guishader.DeleteDlist("buildmenubuilders")
+		WG.guishader.DeleteDlist("buildmenubuildersNext")
+		dlistGuishaderBuilders = nil
+		dlistGuishaderBuildersNext = nil
+	end
+end
+
+-------------------------------------------------------------------------------
+--- DRAW EVENTS
+-------------------------------------------------------------------------------
+
+function widget:DrawScreen()
+	gl.Blending(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+	if not (activeBuilder or alwaysShow) then
+		if WG.guishader and dlistGuishader then
+			if dlistGuishader then
+				WG.guishader.RemoveDlist("buildmenu")
+			end
+			if dlistGuishaderBuilders then
+				WG.guishader.RemoveDlist("buildmenubuilders")
+				WG.guishader.RemoveDlist("buildmenubuildersnext")
+			end
+		end
+	else
+		if WG.guishader then
+			if dlistGuishader then
+				WG.guishader.InsertDlist(dlistGuishader, "buildmenu")
+			end
+			checkGuishaderBuilders()
+		end
+
+		local buildersRectYend = math_ceil((buildersRect.yEnd + bgpadding + (iconMargin * 2)))
+		if redraw then
+			local gridmenuUnitpicsWarmDone = true
+			local warmedGridmenuUnitpicThisFrame = false
+			if gridmenuUnitpicWarm.count > 0 then
+				warmedGridmenuUnitpicThisFrame = true
+				gridmenuUnitpicsWarmDone = flushGridmenuUnitpicWarmQueue()
+			end
+			redraw = nil
+			if not buildmenuBgTex then
+				buildmenuBgTex = gl.CreateTexture(
+					math_floor(backgroundRect.xEnd - backgroundRect.x),
+					math_floor(buildersRectYend - backgroundRect.y),
+					{
+						target = GL.TEXTURE_2D,
+						format = GL.RGBA,
+						fbo = true,
+					}
+				)
+			end
+			if buildmenuBgTex then
+				gl.R2tHelper.RenderToTexture(buildmenuBgTex, function()
+					gl.Translate(-1, -1, 0)
+					gl.Scale(
+						2 / math_floor(backgroundRect.xEnd - backgroundRect.x),
+						2 / math_floor(buildersRectYend - backgroundRect.y),
+						0
+					)
+					gl.Translate(-backgroundRect.x, -backgroundRect.y, 0)
+					drawBuildMenuBg()
+				end, true)
+			end
+			if not buildmenuTex then
+				buildmenuTex = gl.CreateTexture(
+					math_floor(backgroundRect.xEnd - backgroundRect.x) * 2,
+					math_floor(buildersRectYend - backgroundRect.y) * 2,
+					{ --*(vsy<1400 and 2 or 2)
+						target = GL.TEXTURE_2D,
+						format = GL.RGBA,
+						fbo = true,
+					}
+				)
+			end
+			if buildmenuTex and gridmenuUnitpicsWarmDone and not warmedGridmenuUnitpicThisFrame then
+				gl.R2tHelper.RenderToTexture(buildmenuTex, function()
+					gl.Translate(-1, -1, 0)
+					gl.Scale(
+						2 / math_floor(backgroundRect.xEnd - backgroundRect.x),
+						2 / math_floor(buildersRectYend - backgroundRect.y),
+						0
+					)
+					gl.Translate(-backgroundRect.x, -backgroundRect.y, 0)
+					drawBuildMenu()
+				end, true)
+			end
+			if not gridmenuUnitpicsWarmDone or warmedGridmenuUnitpicThisFrame then
+				redraw = true
+			end
+		end
+		if buildmenuBgTex then
+			-- background element
+			gl.R2tHelper.BlendTexRect(
+				buildmenuBgTex,
+				backgroundRect.x,
+				backgroundRect.y,
+				backgroundRect.xEnd,
+				buildersRectYend,
+				true
+			)
+		end
+		if buildmenuTex then
+			-- content
+			gl.R2tHelper.BlendTexRect(
+				buildmenuTex,
+				backgroundRect.x,
+				backgroundRect.y,
+				backgroundRect.xEnd,
+				buildersRectYend,
+				true
+			)
+		end
+
+		-- draw attention highlights (animated, on top of cached content)
+		drawHighlights()
+
+		if redrawProgress then
+			dlistProgress = gl.DeleteList(dlistProgress)
+			redrawProgress = nil
+		end
+
+		if currentlyBuildingRectID then
+			if not dlistProgress then
+				dlistProgress = gl.CreateList(function()
+					drawBuildProgress(cellRects[currentlyBuildingRectID])
+				end)
+			end
+
+			gl.CallList(dlistProgress)
+		end
+	end
+end
+
+-------------------------------------------------------------------------------
+--- CHANGE EVENTS
+-------------------------------------------------------------------------------
+
+function widget:CommandNotify(cmdID, _, cmdOpts)
+	if cmdID >= 0 then
+		return
+	end
+
+	if alwaysReturn or not cmdOpts.shift then
+		setCurrentCategory(nil)
+	end
+end
+
+function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdID, cmdParams, cmdOpts, cmdTag)
+	-- if there's no factory as active builder, cmd is not build return or cmd
+	-- is not to build a unit: nothing to do
+	if cmdID == GameCMD.STOP_PRODUCTION then
+		if WG.Quotas then
+			local quotas = WG.Quotas.getQuotas()
+			quotas[unitID] = nil
+			redraw = true
+		end
+	end
+	if cmdID == CMD.INSERT then
+		if cmdParams[2] then
+			cmdID = cmdParams[2]
+			cmdOpts = cmdParams[3]
+		end
+	end
+
+	if not builderIsFactory or cmdID >= 0 or activeBuilderID ~= unitID then
+		return
+	end
+
+	local queueCount = cmdOptsToFactoryQueueChange(cmdOpts)
+	updateQueueNr(-cmdID, queueCount)
+
+	-- the command queue of the factory hasn't updated yet
+	-- ugly hack to schedule an update if our prediction fails
+	-- 500ms is our heuristic for a really bad scenario
+	-- doUpdateClock = os.clock() + 0.5
+	-- Actually lets comment this and see if we really need it
+end
+
+function widget:UnitCreated(_, unitDefID, _, builderID) -- to handle insert commands with quotas
+	if builderID == activeBuilderID and WG.Quotas then
+		local quotas = WG.Quotas.getQuotas()
+		if quotas[builderID] and quotas[builderID][unitDefID] then
+			redraw = true
+		end
+	end
+end
+
+-- update queue number
+function widget:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdParams, options, cmdTag)
+	-- if factory is not current active builder return
+	if unitID ~= activeBuilderID then
+		return
+	end
+
+	-- The queue does not change under repeat because the order is recycled to the back.
+	local factoryRepeat = select(4, Spring.GetUnitStates(unitID, false, true))
+	-- Internal orders are the exception; see `CFactoryCAI::DecreaseQueueCount`.
+	if factoryRepeat and not options.internal then
+		return
+	end
+
+	updateQueueNr(-cmdID, -1)
+end
+
+-- PERF: Fix convoluted setActiveBuilder and multiple calls to getselectedsorted
+function widget:SelectionChanged(newSel)
+	local prevActiveBuilderDefID = activeBuilder
+	local prevActiveBuilderID = activeBuilderID
+
+	activeBuilder = nil
+	activeBuilderID = nil
+	builderIsFactory = false
+	labBuildModeActive = false
+	prevSelectedBuilders = selectedBuilders
+	selectedBuilders = {}
+	selectedBuildersCount = 0
+	currentPage = 1
+
+	if #newSel == 0 then
+		-- If no selection, we still have to draw empty cells
+		if alwaysShow then
+			refreshCommands()
+		else
+			WG.buildmenu.hoverID = nil
+		end
+
+		return
+	end
+
+	-- Here we do selected sorted to save the GetUnitDefIDs we would have to do
+	-- if we used the newSel
+	local selectedUnitsSorted = spGetSelectedUnitsSorted()
+	for unitDefID, unitIDs in pairs(selectedUnitsSorted) do
+		if units.isBuilder[unitDefID] then
+			selectedBuilders[unitDefID] = #unitIDs
+			selectedBuildersCount = selectedBuildersCount + 1
+		end
+
+		if selectedBuildersCount == maxBuilderRects then
+			break
+		end
+	end
+
+	-- if no builders are selected, there's nothing to do
+	if selectedBuildersCount == 0 then
+		-- If no selection, we still have to draw empty cells
+		if alwaysShow then
+			refreshCommands()
+		else
+			WG.buildmenu.hoverID = nil
+		end
+
+		return
+	end
+
+	-- set active builder to first index after updating selection
+	updateBuilders()
+	setActiveBuilder(1, selectedUnitsSorted)
+
+	if activeBuilder and not builderIsFactory then
+		updateCategories(CONFIG.buildCategories)
+	else
+		updateCategories({})
+	end
+
+	-- If the defid of the builder has changed, or if it is a factory and the
+	-- unit has changed (due to having to update queue): refresh everything
+	if activeBuilder ~= prevActiveBuilderDefID or (builderIsFactory and activeBuilderID ~= prevActiveBuilderID) then
+		refreshCommands()
+	end
+end
+
+function widget:GameStart()
+	isPregame = false
+end
+
+function widget:PlayerChanged()
+	isSpec = Spring.GetSpectatingState()
+	myTeamID = Spring.GetLocalTeamID()
+end
+
+function widget:GetConfigData()
+	return {
+		alwaysReturn = alwaysReturn,
+		autoSelectFirst = autoSelectFirst,
+		useLabBuildMode = useLabBuildMode,
+		showPrice = showPrice,
+		showRadarIcon = showRadarIcon,
+		showGroupIcon = showGroupIcon,
+		stickToBottom = stickToBottom,
+		gameID = Game.gameID and Game.gameID or Spring.GetGameRulesParam("GameID"),
+		alwaysShow = alwaysShow,
+		ctrlKeyModifier = modKeyMultiplier.keyPress.ctrl,
+		shiftKeyModifier = modKeyMultiplier.keyPress.shift,
+	}
+end
+
+function widget:SetConfigData(data)
+	if data.alwaysReturn ~= nil then
+		alwaysReturn = data.alwaysReturn
+	end
+	if data.autoSelectFirst ~= nil then
+		autoSelectFirst = data.autoSelectFirst
+	end
+	if data.useLabBuildMode ~= nil then
+		useLabBuildMode = data.useLabBuildMode
+	end
+	if data.showPrice ~= nil then
+		showPrice = data.showPrice
+	end
+	if data.showRadarIcon ~= nil then
+		showRadarIcon = data.showRadarIcon
+	end
+	if data.showGroupIcon ~= nil then
+		showGroupIcon = data.showGroupIcon
+	end
+	if data.stickToBottom ~= nil then
+		stickToBottom = data.stickToBottom
+	end
+	if data.alwaysShow ~= nil then
+		alwaysShow = data.alwaysShow
+	end
+	if data.ctrlKeyModifier ~= nil then
+		modKeyMultiplier.keyPress.ctrl = data.ctrlKeyModifier
+	end
+	if data.shiftKeyModifier ~= nil then
+		modKeyMultiplier.keyPress.shift = data.shiftKeyModifier
+	end
+end
+
+function widget:UnitBlocked(unitDefID, reasons, builderUnitDefID)
+	units.setBlocked(unitDefID, reasons, builderUnitDefID)
+	if not delayRefresh or delayRefresh < Spring.GetGameSeconds() then
+		delayRefresh = Spring.GetGameSeconds() + 0.5 -- delay so multiple sequential UnitBlocked calls are batched in a single update.
+	end
+end
+
+function widget:BuildOptionsChanged(builderUnitDefID, builtUnitDefID, added)
+	local buildOptions = unitBuildOptions[builderUnitDefID]
+	if buildOptions then
+		dynamicBuildOptions.patch(buildOptions, builtUnitDefID, added)
+	end
+	if builderUnitDefID == activeBuilder then
+		doUpdate = true
+	end
+end
+
+function widget:Shutdown()
+	-- LOCAL MOD (2026-09-27): team-color icon recolor shader cleanup.
+	if teamColorRecolorShader then
+		teamColorRecolorShader:Finalize()
+		teamColorRecolorShader = nil
+	end
+
+	dlistBuildmenu = gl.DeleteList(dlistBuildmenu)
+	dlistProgress = gl.DeleteList(dlistProgress)
+	if buildmenuTex then
+		gl.DeleteTexture(buildmenuBgTex)
+		buildmenuBgTex = nil
+		gl.DeleteTexture(buildmenuTex)
+		buildmenuTex = nil
+	end
+	if WG.guishader and dlistGuishader then
+		WG.guishader.DeleteDlist("buildmenu")
+		WG.guishader.DeleteDlist("buildmenubuilders")
+		WG.guishader.DeleteDlist("buildmenubuildersnext")
+		dlistGuishader = nil
+	end
+	WG.buildmenu = nil
+end
