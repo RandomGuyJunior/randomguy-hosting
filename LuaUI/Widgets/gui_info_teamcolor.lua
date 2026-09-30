@@ -2913,7 +2913,7 @@ local function drawUnitInfo()
 						0.1,
 						nil,
 						disabled and 0 or nil,
-						"#" .. uDefID,
+						NativeTeamColorTexture(uDefID, displayTeamID),
 						(unitDefInfo[uDefID].icontype and ":l:" .. unitDefInfo[uDefID].icontype or nil),
 						groups[unitGroup[uDefID]],
 						{ unitDefInfo[uDefID].metalCost, unitDefInfo[uDefID].energyCost }
