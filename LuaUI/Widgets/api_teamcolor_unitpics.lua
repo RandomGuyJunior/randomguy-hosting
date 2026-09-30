@@ -20,6 +20,7 @@ local queue = {}
 local queued = {}
 local modelShader
 local teamColUniform
+local revision = 0
 
 local MODEL_VERT = [[
 	#version 150 compatibility
@@ -189,6 +190,7 @@ local function processQueue()
 				local tex = renderPortrait(job)
 				if tex then
 					caches[job.key] = tex
+					revision = revision + 1
 				end
 			end
 		end
@@ -218,6 +220,10 @@ function widget:Initialize()
 			end
 			for key in pairs(queued) do queued[key] = nil end
 			for i = #queue, 1, -1 do queue[i] = nil end
+			revision = revision + 1
+		end,
+		GetRevision = function()
+			return revision
 		end,
 	}
 end
