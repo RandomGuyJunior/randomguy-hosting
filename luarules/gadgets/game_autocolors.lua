@@ -467,7 +467,7 @@ end
 --     requested colour falls outside the display gamut.
 --
 -- Normal BAR-sized games keep BAR's hand-tuned palettes unchanged.
-local LARGE_PERCEPTUAL_TEAM_THRESHOLD = 30
+local LARGE_PERCEPTUAL_TEAM_THRESHOLD = 16
 local useLargePerceptualPalette = (not isSurvival) and ((#teamList - 1) > LARGE_PERCEPTUAL_TEAM_THRESHOLD)
 local largePerceptualColors = {}
 
