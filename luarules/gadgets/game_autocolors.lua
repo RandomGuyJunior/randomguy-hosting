@@ -472,10 +472,12 @@ local useLargePerceptualPalette = (not isSurvival) and ((#teamList - 1) > LARGE_
 local largePerceptualColors = {}
 
 local function stableHash(text)
-	local h = 2166136261
+	-- Keep intermediates well below Lua 5.1 double's exact-integer limit so
+	-- synced and unsynced copies cannot diverge because of large-number rounding.
+	local h = 5381
 	text = tostring(text or "")
 	for i = 1, #text do
-		h = (h * 16777619 + string.byte(text, i)) % 4294967291
+		h = (h * 33 + string.byte(text, i)) % 2147483647
 	end
 	return h
 end
@@ -755,7 +757,11 @@ local function setupTeamColor(teamID, allyTeamID, isAI, localRun)
 			g = hex2RGB(gaiaGrayColor)[2],
 			b = hex2RGB(gaiaGrayColor)[3],
 		}
-	elseif useLargePerceptualPalette and largePerceptualColors[teamID] then
+	elseif
+		useLargePerceptualPalette
+		and largePerceptualColors[teamID]
+		and not (localRun and (anonymousMode == "local" or anonymousMode == "disco"))
+	then
 		teamColorsTable[teamID] = {
 			r = largePerceptualColors[teamID].r,
 			g = largePerceptualColors[teamID].g,
