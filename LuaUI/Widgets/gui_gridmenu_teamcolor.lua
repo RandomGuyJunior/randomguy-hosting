@@ -2970,7 +2970,10 @@ local function drawCell(rect)
 	end
 
 	local uid = rect.opts.uDefID
-	local unitTexture = NativeTeamColorTexture(uid)
+	-- Build-option cells use BAR's normal unitpic. The custom team-colour
+	-- shader below recolours the team-mask regions. Using generated model
+	-- portraits here caused missing/broken buildpictures.
+	local unitTexture = "#" .. uid
 	if not gridmenuUnitpicWarm.warmed[uid] then
 		tracy.ZoneBeginN("W:GridMenu:DrawCell:TextureWarmFallback")
 		if gl.Texture(unitTexture) then
