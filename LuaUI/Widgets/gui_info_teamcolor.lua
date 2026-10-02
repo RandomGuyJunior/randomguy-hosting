@@ -2039,15 +2039,7 @@ local teamColorPortraitRevision = -1
 -- targets myTeamID and would recolor allied/enemy portraits to the local team.
 local function NativeTeamColorTexture(unitDefID, teamID)
 	local api = WG.TeamColorUnitPics
-	if api then
-		local texture = api.GetTexture(unitDefID, teamID or Spring.GetLocalTeamID())
-		if texture then
-			return texture, true
-		end
-	end
-	-- Temporary fallback only. Do not treat it as proof that the requested
-	-- owner-colour portrait is ready.
-	return "#" .. unitDefID, false
+	return (api and api.GetTexture(unitDefID, teamID or Spring.GetLocalTeamID())) or ("#" .. unitDefID)
 end
 
 local function drawSelectionCell(cellID, uDefID, usedZoom, highlightColor)
@@ -3789,24 +3781,18 @@ function widget:DrawScreen()
 		displayMode ~= "selection"
 		and displayUnitDefID
 		and unitDefInfo[displayUnitDefID].buildPic
+		and not selectionUnitpicWarm.warmed[displayUnitDefID]
 	then
 		tracy.ZoneBeginN("W:Info:DisplayUnitpicWarmup")
-		local displayPortraitTeamID =
-			displayUnitID and Spring.GetUnitTeam(displayUnitID) or Spring.GetLocalTeamID()
-		local warmTexture, nativePortraitReady = NativeTeamColorTexture(
+		warmedDisplayUnitpicThisFrame = true
+		local warmTexture = NativeTeamColorTexture(
 			displayUnitDefID,
-			displayPortraitTeamID
+			displayUnitID and Spring.GetUnitTeam(displayUnitID) or Spring.GetLocalTeamID()
 		)
-
-		-- Portrait readiness is owner/team-colour-specific. A cached portrait for
-		-- this unitDef in one colour must not satisfy another owner's portrait.
-		if not nativePortraitReady then
-			warmedDisplayUnitpicThisFrame = true
-			updateTex = true
-		else
-			glTexture(warmTexture)
-			glTexture(false)
+		if glTexture(warmTexture) then
+			selectionUnitpicWarm.warmed[displayUnitDefID] = true
 		end
+		glTexture(false)
 		tracy.ZoneEnd()
 	end
 	local selectionUnitpicsWarmDone = true
