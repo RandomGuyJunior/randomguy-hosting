@@ -3793,7 +3793,7 @@ end
 --- DRAW LISTS
 -------------------------------------------------------------------------------
 
-local function checkGuishaderBuilders()
+function checkGuishaderBuilders()
 	if selectedBuildersCount > 1 and activeBuilder then
 		if prevSelectedBuildersCount ~= selectedBuildersCount then
 			prevSelectedBuildersCount = selectedBuildersCount
