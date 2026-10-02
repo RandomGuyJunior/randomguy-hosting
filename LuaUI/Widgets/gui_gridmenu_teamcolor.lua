@@ -2970,7 +2970,10 @@ local function drawCell(rect)
 	end
 
 	local uid = rect.opts.uDefID
-	local unitTexture = NativeTeamColorTexture(uid)
+	-- Keep BAR's real buildpicture (background/orientation/framing) and apply
+	-- the existing team-colour recolor shader below. Generated model FBO
+	-- portraits are transparent and vertically inverted when used here.
+	local unitTexture = "#" .. uid
 	if not gridmenuUnitpicWarm.warmed[uid] then
 		tracy.ZoneBeginN("W:GridMenu:DrawCell:TextureWarmFallback")
 		if gl.Texture(unitTexture) then
