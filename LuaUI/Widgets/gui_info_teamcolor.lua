@@ -913,7 +913,7 @@ end
 -- file that none of these names (TEAMCOLOR_RECOLOR_*, teamColorRecolor*,
 -- rgbToHue, DrawTeamColorRecolor) were already in use here.
 
-TEAMCOLOR_RECOLOR_ENABLED = false -- flip to false to disable without deleting any code
+TEAMCOLOR_RECOLOR_ENABLED = true -- flip to false to disable without deleting any code
 
 -- TEMP DIAGNOSTIC (2026-09-28): flip to true to visualize which pixels the
 -- shader's hue/saturation gate is actually matching on a live icon, instead
@@ -1579,7 +1579,7 @@ TEAMCOLOR_RECOLOR_RESCUE_INCLUDE = {
 -- overlay lines up pixel-perfectly with the icon that call just drew.
 -- Takes plain x1/y1/x2/y2 (not a "rect" table like gridmenu's version) since
 -- that's what this file's own two call sites already have on hand.
-function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZoom, unitDefID)
+function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZoom, unitDefID, targetTeamID)
 	if not TEAMCOLOR_RECOLOR_ENABLED or not teamColorRecolorShader then
 		return
 	end
@@ -1652,7 +1652,7 @@ function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZo
 		end
 	end
 
-	local tr, tg, tb = Spring.GetTeamColor(myTeamID)
+	local tr, tg, tb = Spring.GetTeamColor(targetTeamID or myTeamID)
 	if not tr then
 		return
 	end
@@ -2046,7 +2046,7 @@ local function drawSelectionCell(cellID, uDefID, usedZoom, highlightColor)
 	end
 	local selectedForDef = selUnitsSorted and selUnitsSorted[uDefID]
 	local selectedTeam = selectedForDef and selectedForDef[1] and Spring.GetUnitTeam(selectedForDef[1])
-	local unitTexture = NativeTeamColorTexture(uDefID, selectedTeam)
+	local unitTexture = "#" .. uDefID
 	if not selectionUnitpicWarm.warmed[uDefID] then
 		tracy.ZoneBeginN("W:Info:DrawSelection:Cell:TextureWarmFallback")
 		if glTexture(unitTexture) then
@@ -2085,7 +2085,8 @@ local function drawSelectionCell(cellID, uDefID, usedZoom, highlightColor)
 		cornerSize,
 		unitTexture,
 		usedZoom,
-		uDefID
+		uDefID,
+		selectedTeam
 	)
 	tracy.ZoneEnd()
 
@@ -2507,7 +2508,7 @@ local function drawUnitInfo()
 			0.03,
 			nil,
 			nil,
-			NativeTeamColorTexture(displayUnitDefID, displayTeamID),
+			"#" .. displayUnitDefID,
 			(unitDefInfo[displayUnitDefID].icontype and ":l:" .. unitDefInfo[displayUnitDefID].icontype or nil),
 			groups[unitGroup[displayUnitDefID]],
 			{ unitDefInfo[displayUnitDefID].metalCost, unitDefInfo[displayUnitDefID].energyCost }
@@ -2524,7 +2525,8 @@ local function drawUnitInfo()
 			math_max(1, math_floor(iconSize * 0.024)),
 			"#" .. displayUnitDefID,
 			0.03,
-			displayUnitDefID
+			displayUnitDefID,
+			displayTeamID
 		)
 		tracy.ZoneEnd()
 		tracy.ZoneBeginN("W:Info:DrawUnitInfo:BuildText")
@@ -2914,7 +2916,7 @@ local function drawUnitInfo()
 						0.1,
 						nil,
 						disabled and 0 or nil,
-						NativeTeamColorTexture(uDefID, displayTeamID),
+						"#" .. uDefID,
 						(unitDefInfo[uDefID].icontype and ":l:" .. unitDefInfo[uDefID].icontype or nil),
 						groups[unitGroup[uDefID]],
 						{ unitDefInfo[uDefID].metalCost, unitDefInfo[uDefID].energyCost }
@@ -2987,10 +2989,7 @@ local function drawUnitInfo()
 							0.1,
 							nil,
 							nil,
-							NativeTeamColorTexture(
-							uDefID,
-							units[cellID] and Spring.GetUnitTeam(units[cellID]) or displayTeamID
-						),
+							"#" .. uDefID,
 							(unitDefInfo[uDefID].icontype and ":l:" .. unitDefInfo[uDefID].icontype or nil),
 							groups[unitGroup[uDefID]],
 							{ unitDefInfo[uDefID].metalCost, unitDefInfo[uDefID].energyCost }
@@ -3802,10 +3801,7 @@ function widget:DrawScreen()
 	then
 		tracy.ZoneBeginN("W:Info:DisplayUnitpicWarmup")
 		warmedDisplayUnitpicThisFrame = true
-		local warmTexture = NativeTeamColorTexture(
-			displayUnitDefID,
-			displayUnitID and Spring.GetUnitTeam(displayUnitID) or Spring.GetLocalTeamID()
-		)
+		local warmTexture = "#" .. displayUnitDefID
 		if glTexture(warmTexture) then
 			selectionUnitpicWarm.warmed[displayUnitDefID] = true
 		end
