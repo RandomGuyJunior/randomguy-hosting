@@ -2034,9 +2034,6 @@ local killCountCache = {}
 local killCountCacheTime = 0
 
 local teamColorPortraitRevision = -1
--- Native model portraits are the single source of truth for team colour.
--- Do not run the old hue-shift overlay on top of these textures: that shader
--- targets myTeamID and would recolor allied/enemy portraits to the local team.
 local function NativeTeamColorTexture(unitDefID, teamID)
 	local api = WG.TeamColorUnitPics
 	return (api and api.GetTexture(unitDefID, teamID or Spring.GetLocalTeamID())) or ("#" .. unitDefID)
@@ -2080,6 +2077,16 @@ local function drawSelectionCell(cellID, uDefID, usedZoom, highlightColor)
 	)
 	-- LOCAL MOD (2026-09-27): team-color icon recolor, see the "LOCAL MOD"
 	-- section above widget:Initialize() for the shader/rationale.
+	DrawTeamColorRecolor(
+		cellRect[cellID][1] + cellPadding,
+		cellRect[cellID][2] + cellPadding,
+		cellRect[cellID][3],
+		cellRect[cellID][4],
+		cornerSize,
+		unitTexture,
+		usedZoom,
+		uDefID
+	)
 	tracy.ZoneEnd()
 
 	tracy.ZoneBeginN("W:Info:DrawSelection:Cell:CountText")
@@ -2509,6 +2516,16 @@ local function drawUnitInfo()
 		-- mirrors WG.FlowUI.Draw.Unit's own default-cs formula
 		-- (max(1, floor(width * 0.024))) since the real UiUnit call above
 		-- passed cornerSize=nil and let it compute that default internally.
+		DrawTeamColorRecolor(
+			iconX,
+			iconY - iconSize,
+			iconX + iconSize,
+			iconY,
+			math_max(1, math_floor(iconSize * 0.024)),
+			"#" .. displayUnitDefID,
+			0.03,
+			displayUnitDefID
+		)
 		tracy.ZoneEnd()
 		tracy.ZoneBeginN("W:Info:DrawUnitInfo:BuildText")
 		-- price
