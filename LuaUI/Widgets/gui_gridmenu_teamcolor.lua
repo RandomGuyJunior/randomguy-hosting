@@ -1499,7 +1499,7 @@ end
 -- another widget's globals; it only has to avoid names already used
 -- elsewhere in THIS file, confirmed via grep against upstream before adding.
 
-TEAMCOLOR_RECOLOR_ENABLED = false -- flip to false to disable without deleting any code
+TEAMCOLOR_RECOLOR_ENABLED = true -- flip to false to disable without deleting any code
 
 -- Armada: default cyan-blue trim.
 TEAMCOLOR_RECOLOR_HUE_MIN_ARM = 0.50 -- ~180 degrees
@@ -3455,7 +3455,7 @@ local function drawBuilder(rect)
 		zoom,
 		nil,
 		math_max(0.1, highlightOpacity or 0.1),
-		NativeTeamColorTexture(unitDefID, rect.opts.teamID),
+		"#" .. unitDefID,
 		nil,
 		nil,
 		nil,
