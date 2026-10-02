@@ -1579,7 +1579,7 @@ TEAMCOLOR_RECOLOR_RESCUE_INCLUDE = {
 -- overlay lines up pixel-perfectly with the icon that call just drew.
 -- Takes plain x1/y1/x2/y2 (not a "rect" table like gridmenu's version) since
 -- that's what this file's own two call sites already have on hand.
-function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZoom, unitDefID)
+function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZoom, unitDefID, targetTeamID)
 	if not TEAMCOLOR_RECOLOR_ENABLED or not teamColorRecolorShader then
 		return
 	end
@@ -1652,7 +1652,7 @@ function DrawTeamColorRecolor(x1, y1, x2, y2, cornerSizeArg, unitTexture, usedZo
 		end
 	end
 
-	local tr, tg, tb = Spring.GetTeamColor(myTeamID)
+	local tr, tg, tb = Spring.GetTeamColor(targetTeamID or myTeamID)
 	if not tr then
 		return
 	end
@@ -2500,15 +2500,26 @@ local function drawUnitInfo()
 			0.03,
 			nil,
 			nil,
-			NativeTeamColorTexture(displayUnitDefID, displayTeamID),
+			"#" .. displayUnitDefID,
 			(unitDefInfo[displayUnitDefID].icontype and ":l:" .. unitDefInfo[displayUnitDefID].icontype or nil),
 			groups[unitGroup[displayUnitDefID]],
 			{ unitDefInfo[displayUnitDefID].metalCost, unitDefInfo[displayUnitDefID].energyCost }
 		)
-		-- LOCAL MOD (2026-09-27): team-color icon recolor. cornerSize here
-		-- mirrors WG.FlowUI.Draw.Unit's own default-cs formula
-		-- (max(1, floor(width * 0.024))) since the real UiUnit call above
-		-- passed cornerSize=nil and let it compute that default internally.
+		-- Recolor BAR's normal buildpic toward the actual owning team's colour.
+		-- Keep the stock picture here: the generated model portrait is useful for
+		-- build menus, but using it inside this cached Info FBO can produce a
+		-- clipped/stale portrait.
+		DrawTeamColorRecolor(
+			iconX,
+			iconY - iconSize,
+			iconX + iconSize,
+			iconY,
+			math_max(1, math_floor(iconSize * 0.024)),
+			"#" .. displayUnitDefID,
+			0.03,
+			displayUnitDefID,
+			displayTeamID
+		)
 		tracy.ZoneEnd()
 		tracy.ZoneBeginN("W:Info:DrawUnitInfo:BuildText")
 		-- price
