@@ -1,0 +1,25 @@
+name: Inspect Epic Bastion Models
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/s3o_inspect.py"
+      - ".github/workflows/inspect-epic-bastion.yml"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download BAR donor models
+        run: |
+          curl -L --fail -o /tmp/legeheatraymech.s3o https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/objects3d/Units/legeheatraymech.s3o
+          curl -L --fail -o /tmp/legapopupdef.s3o https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/objects3d/Units/legapopupdef.s3o
+      - name: Inspect models
+        run: |
+          python3 tools/s3o_inspect.py objects3d/Units/legbastiont3.s3o
+          echo "===== SOL INVICTUS ====="
+          python3 tools/s3o_inspect.py /tmp/legeheatraymech.s3o
+          echo "===== CHIMERA ====="
+          python3 tools/s3o_inspect.py /tmp/legapopupdef.s3o
