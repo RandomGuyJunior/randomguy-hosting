@@ -1,26 +1,36 @@
 local base = piece("base")
-local piston1 = piece("piston1")
-local piston2 = piece("piston2")
 local turret = piece("turret")
 local aimingArm = piece("aiming_arm")
+local aimSweet = piece("aimy")
+
+local ringAnchor = piece("ringanchor")
 local ring = piece("ring")
 local ring2 = piece("ring2")
 local ring3 = piece("ring3")
 local ring4 = piece("ring4")
-local aimFrom = piece("aimfromy")
-local aimSweet = piece("aimy")
-local flare = piece("flare")
-local fireline = piece("fireline")
-local lineflare = piece("lineflare")
-local lightpoint = piece("lightpoint")
-local ambienttop = piece("ambienttop")
-local topArmsPivot = piece("topArmsPivot")
-local leftAimingArm = piece("leftAimingArm")
-local rightAimingArm = piece("rightAimingArm")
-local bottomAimingArm = piece("bottomAimingArm")
+local beamPitch = piece("beam_pitch")
+local beamMuzzle = piece("beam_muzzle")
 
-local SIG_AIM = 1
+local gaussLYaw = piece("gaussL_yaw")
+local gaussLPitch = piece("gaussL_pitch")
+local gaussLBarrel = piece("gaussL_barrel")
+local gaussLMuzzle = piece("gaussL_muzzle")
+local gaussRYaw = piece("gaussR_yaw")
+local gaussRPitch = piece("gaussR_pitch")
+local gaussRBarrel = piece("gaussR_barrel")
+local gaussRMuzzle = piece("gaussR_muzzle")
+
+local epicStrutL = piece("epic_strut_l")
+local epicStrutR = piece("epic_strut_r")
+local epicPodL = piece("epic_pod_l")
+local epicPodR = piece("epic_pod_r")
+local epicToroidL = piece("epic_toroid_l")
+local epicToroidR = piece("epic_toroid_r")
+
+local SIG_AIM_MAIN = 1
 local SIG_RING = 2
+local SIG_GAUSS_L = 4
+local SIG_GAUSS_R = 8
 
 local active = true
 local alive = true
@@ -29,20 +39,23 @@ local deploying = false
 local firing = false
 local fireSerial = 0
 
-local fireTimeFrames = 96 -- overwritten from sweepfire_firetime (3.2s * 30fps)
+local RING_RISE = 38
+local RING_RISE_SPEED = 22
+
+local fireTimeFrames = 96
 local fireWindowMs = 3200
 local lastFiredFrame = -10000
-local idleDockFrames = 120 -- ~4 seconds at 30 game frames/second
+local idleDockFrames = 120
 local lastCombatFrame = 0
 
 local oldHeading
 local targetSwap = false
 
 local rings = {
-	{ piece = ring,  axis = y_axis, idle = 120, firing = 180 },
-	{ piece = ring2, axis = x_axis, idle = 90,  firing = 120 },
-	{ piece = ring3, axis = x_axis, idle = 60,  firing = 90  },
-	{ piece = ring4, axis = z_axis, idle = 30,  firing = 60  },
+	{ piece = ring, axis = y_axis, idle = 120, firing = 180 },
+	{ piece = ring2, axis = x_axis, idle = 90, firing = 120 },
+	{ piece = ring3, axis = x_axis, idle = 60, firing = 90 },
+	{ piece = ring4, axis = z_axis, idle = 30, firing = 60 },
 }
 
 local function SetVisualParam(name, value)
@@ -78,35 +91,16 @@ local function StopRings()
 	end
 end
 
-local function CenterRings(y, speed)
-	for i = 1, #rings do
-		local p = rings[i].piece
-		Move(p, x_axis, 0, speed)
-		Move(p, z_axis, 0, speed)
-		Move(p, y_axis, y, speed)
-	end
-end
-
 local function DockRings()
 	Signal(SIG_RING)
 	SetSignalMask(SIG_RING)
 
 	deploying = false
 	SetFiringState(false)
-
-	if not deployed then
-		StopRings()
-		CenterRings(-10, 20)
-		SetHoverState(false)
-		return
-	end
-
 	StopRings()
-	CenterRings(-10, 20)
 
-	for i = 1, #rings do
-		WaitForMove(rings[i].piece, y_axis)
-	end
+	Move(ringAnchor, y_axis, 0, RING_RISE_SPEED)
+	WaitForMove(ringAnchor, y_axis)
 
 	deployed = false
 	SetHoverState(false)
@@ -121,24 +115,24 @@ local function DeployRings()
 	SetSignalMask(SIG_RING)
 	deploying = true
 
-	-- All four rings share one geometric centre. They begin rotating
-	-- immediately, then accelerate progressively while the assembly rises.
-	CenterRings(24, 18)
-	SpinRings(false, 0.16)
-	Sleep(320)
-	SpinRings(false, 0.34)
-	Sleep(320)
-	SpinRings(false, 0.52)
-	Sleep(320)
-	SpinRings(false, 0.70)
-	Sleep(320)
-	SpinRings(false, 0.86)
+	-- The model now gives every ring the same local origin under ringanchor.
+	-- Move the anchor, never the individual rings: this guarantees one centre.
+	Move(ringAnchor, y_axis, RING_RISE, RING_RISE_SPEED)
 
-	for i = 1, #rings do
-		WaitForMove(rings[i].piece, y_axis)
-	end
+	-- Rotation starts immediately and ramps while the anchor rises.
+	SpinRings(false, 0.14)
+	Sleep(280)
+	SpinRings(false, 0.30)
+	Sleep(280)
+	SpinRings(false, 0.47)
+	Sleep(280)
+	SpinRings(false, 0.64)
+	Sleep(280)
+	SpinRings(false, 0.82)
 
+	WaitForMove(ringAnchor, y_axis)
 	SpinRings(false, 1.0)
+
 	deploying = false
 	deployed = true
 	SetHoverState(true)
@@ -158,11 +152,10 @@ local function CombatIdleLoop()
 	while alive do
 		if (deployed or deploying) and active then
 			local _, _, target = Spring.GetUnitWeaponTarget(unitID, 1)
-			local gameFrame = Spring.GetGameFrame()
-
+			local frame = Spring.GetGameFrame()
 			if target ~= nil or firing then
-				lastCombatFrame = gameFrame
-			elseif deployed and gameFrame - lastCombatFrame >= idleDockFrames then
+				lastCombatFrame = frame
+			elseif deployed and frame - lastCombatFrame >= idleDockFrames then
 				StartThread(DockRings)
 			end
 		end
@@ -187,9 +180,9 @@ local function SweepFireLoop()
 		if firing and targetSwap then
 			local frame = Spring.GetGameFrame()
 			if frame < lastFiredFrame + fireTimeFrames then
-				-- Same mechanism used by BAR's stock Legion Bastion:
-				-- FIRE_W1 forces additional beam segments during sweepfire.
-				EmitSfx(fireline, 2048)
+				-- BAR Bastion sweepfire mechanism, now emitted from the
+				-- exact centre of the raised ring assembly.
+				EmitSfx(beamMuzzle, 2048)
 			end
 		end
 		Sleep(20)
@@ -208,26 +201,46 @@ local function HeadingDelta(a, b)
 	return d
 end
 
+local GAUSS_HALF_ARC = math.rad(135)
+
+local function AimGauss(yawPiece, pitchPiece, signal, heading, pitch)
+	-- 270 degree traverse: everything except a 90 degree rear blind wedge.
+	if math.abs(heading) > GAUSS_HALF_ARC then
+		return false
+	end
+
+	Signal(signal)
+	SetSignalMask(signal)
+	Turn(yawPiece, y_axis, heading, math.rad(70))
+	Turn(pitchPiece, x_axis, -pitch, math.rad(48))
+	WaitForTurn(yawPiece, y_axis)
+	WaitForTurn(pitchPiece, x_axis)
+	return alive and active
+end
+
+local function GaussRecoil(barrel, muzzle)
+	EmitSfx(muzzle, 1024)
+	Move(barrel, z_axis, -4.5, 85)
+	Sleep(70)
+	Move(barrel, z_axis, 0, 24)
+end
+
 function script.Create()
 	Show(ring)
 	Show(ring2)
 	Show(ring3)
 	Show(ring4)
+	Show(epicStrutL)
+	Show(epicStrutR)
+	Show(epicPodL)
+	Show(epicPodR)
+	Show(epicToroidL)
+	Show(epicToroidR)
+	Show(gaussLYaw)
+	Show(gaussRYaw)
 
-	Hide(flare)
-	Hide(fireline)
-	Hide(lineflare)
-	Hide(lightpoint)
-	Hide(ambienttop)
-
-	Move(turret, y_axis, 6)
-	Turn(leftAimingArm, z_axis, math.rad(45))
-	Turn(rightAimingArm, z_axis, math.rad(-45))
-	Turn(bottomAimingArm, x_axis, 0)
-
-	-- Epic resting pose: the four gyroscopic rings remain concentric and
-	-- lowered into the cradle rather than being pulled sideways from centre.
-	CenterRings(-10, 0)
+	Move(ringAnchor, y_axis, 0)
+	Turn(beamPitch, x_axis, 0)
 	StopRings()
 
 	SetHoverState(false)
@@ -245,17 +258,19 @@ end
 
 function script.Deactivate()
 	active = false
-	Signal(SIG_AIM)
+	Signal(SIG_AIM_MAIN)
+	Signal(SIG_GAUSS_L)
+	Signal(SIG_GAUSS_R)
 	StartThread(DockRings)
 	return 0
 end
 
 function script.AimFromWeapon1()
-	return aimFrom
+	return ringAnchor
 end
 
 function script.QueryWeapon1()
-	return lineflare
+	return beamMuzzle
 end
 
 function script.AimWeapon1(heading, pitch)
@@ -263,26 +278,23 @@ function script.AimWeapon1(heading, pitch)
 		return false
 	end
 
-	Signal(SIG_AIM)
-	SetSignalMask(SIG_AIM)
+	Signal(SIG_AIM_MAIN)
+	SetSignalMask(SIG_AIM_MAIN)
 
 	MarkCombatActivity()
 	EnsureDeploying()
 
-	-- Stock Bastion treats a meaningful heading change as sweepfire activity.
 	if oldHeading == nil or HeadingDelta(oldHeading, heading) > math.rad(2.75) then
 		targetSwap = true
 	end
 	oldHeading = heading
 
 	Turn(turret, y_axis, heading, math.rad(25))
-	Turn(aimingArm, x_axis, -pitch, math.rad(10))
-	Turn(topArmsPivot, x_axis, -pitch, math.rad(10))
+	Turn(beamPitch, x_axis, -pitch, math.rad(12))
 
 	WaitForTurn(turret, y_axis)
-	WaitForTurn(aimingArm, x_axis)
+	WaitForTurn(beamPitch, x_axis)
 
-	-- Do not release the weapon until all four rings have completed the lift.
 	while active and alive and not deployed do
 		Sleep(30)
 	end
@@ -293,7 +305,7 @@ end
 function script.FireWeapon1()
 	MarkCombatActivity()
 	lastFiredFrame = Spring.GetGameFrame()
-	targetSwap = true -- guarantee the full sustained sweep, including the first target
+	targetSwap = true
 
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
@@ -303,10 +315,41 @@ end
 
 function script.SetSweepfireTimeWeapon1(fireTimeValue, reloadTimeValue)
 	if fireTimeValue and fireTimeValue > 0 then
-		-- LUS receives sweepfire custom time in game frames.
 		fireTimeFrames = math.max(1, fireTimeValue)
 		fireWindowMs = math.max(250, math.floor((fireTimeFrames / 30) * 1000 + 0.5))
 	end
+end
+
+function script.AimFromWeapon2()
+	return gaussLYaw
+end
+
+function script.QueryWeapon2()
+	return gaussLMuzzle
+end
+
+function script.AimWeapon2(heading, pitch)
+	return AimGauss(gaussLYaw, gaussLPitch, SIG_GAUSS_L, heading, pitch)
+end
+
+function script.FireWeapon2()
+	StartThread(GaussRecoil, gaussLBarrel, gaussLMuzzle)
+end
+
+function script.AimFromWeapon3()
+	return gaussRYaw
+end
+
+function script.QueryWeapon3()
+	return gaussRMuzzle
+end
+
+function script.AimWeapon3(heading, pitch)
+	return AimGauss(gaussRYaw, gaussRPitch, SIG_GAUSS_R, heading, pitch)
+end
+
+function script.FireWeapon3()
+	StartThread(GaussRecoil, gaussRBarrel, gaussRMuzzle)
 end
 
 function script.SweetSpot()
@@ -315,8 +358,10 @@ end
 
 function script.Killed(recentDamage, maxHealth)
 	alive = false
-	Signal(SIG_AIM)
+	Signal(SIG_AIM_MAIN)
 	Signal(SIG_RING)
+	Signal(SIG_GAUSS_L)
+	Signal(SIG_GAUSS_R)
 	SetHoverState(false)
 	SetFiringState(false)
 
@@ -326,15 +371,17 @@ function script.Killed(recentDamage, maxHealth)
 		fx = fx + SFX.EXPLODE
 	end
 
-	Explode(ring, fx)
-	Explode(ring2, fx)
-	Explode(ring3, fx)
-	Explode(ring4, fx)
+	for i = 1, #rings do
+		Explode(rings[i].piece, fx)
+	end
+	Explode(gaussLYaw, fx)
+	Explode(gaussLBarrel, fx)
+	Explode(gaussRYaw, fx)
+	Explode(gaussRBarrel, fx)
+	Explode(epicPodL, fx)
+	Explode(epicPodR, fx)
 	Explode(turret, fx)
 	Explode(aimingArm, fx)
-	Explode(leftAimingArm, fx)
-	Explode(rightAimingArm, fx)
-	Explode(bottomAimingArm, fx)
 
 	if severity <= 0.5 then
 		return 1
