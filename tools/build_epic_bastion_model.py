@@ -216,7 +216,10 @@ def rebuild(epic,sol,chim):
         yaw.children=[pitch]
         return yaw
 
-    turret.children.extend([gauss("l"),gauss("r")])
+    piston2=find(root,"piston2")
+    gauss_deck=empty("gaussdeck",(0.0,72.53,0.0))
+    gauss_deck.children=[gauss("l"),gauss("r")]
+    piston2.children.append(gauss_deck)
 
     # Give the enlarged silhouette sufficient model bounds.
     epic.radius=max(epic.radius,182.0)
@@ -228,7 +231,7 @@ def validate(model):
     required=[
         "ringanchor","ring","ring2","ring3","ring4","beam_pitch","beam_muzzle",
         "gaussL_yaw","gaussL_pitch","gaussL_barrel","gaussL_muzzle",
-        "gaussR_yaw","gaussR_pitch","gaussR_barrel","gaussR_muzzle",
+        "gaussR_yaw","gaussR_pitch","gaussR_barrel","gaussR_muzzle","gaussdeck",
         "epic_strut_l","epic_strut_r","epic_pod_l","epic_pod_r",
     ]
     names={p.name for p in walk(model.root)}
