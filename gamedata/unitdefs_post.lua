@@ -423,6 +423,38 @@ local function postProcessScavengerUnitDefs()
 	end
 end
 
+
+local function appendBuildOptionOnce(unitName, optionName)
+	local ud = UnitDefs[unitName]
+	if not ud or not ud.buildoptions then
+		return
+	end
+	for i = 1, #ud.buildoptions do
+		if ud.buildoptions[i] == optionName then
+			return
+		end
+	end
+	ud.buildoptions[#ud.buildoptions + 1] = optionName
+end
+
+local function addEpicBastionBuildOptions()
+	-- Match BAR's Scavenger Units for Players behavior: regular Legion T2
+	-- constructors only receive this unit when that option is explicitly enabled.
+	if modOptions.scavunitsforplayers then
+		for _, builder in ipairs({ "legaca", "legack", "legacv" }) do
+			appendBuildOptionOnce(builder, "legbastiont3")
+		end
+	end
+
+	-- Actual Scavenger constructors get the generated _scav copy whenever
+	-- Scavenger UnitDefs are active.
+	if scavengersEnabled then
+		for _, builder in ipairs({ "legaca_scav", "legack_scav", "legacv_scav" }) do
+			appendBuildOptionOnce(builder, "legbastiont3_scav")
+		end
+	end
+end
+
 local function exportYardmaps()
 	for _, unitDef in pairs(UnitDefs) do
 		if unitDef.yardmap then
@@ -461,6 +493,7 @@ preProcessUnitDefs()
 if scavengersEnabled then
 	createScavengerUnitDefs()
 end
+addEpicBastionBuildOptions()
 postProcessAllUnitDefs()
 postProcessRegularUnitDefs()
 postProcessScavengerUnitDefs()
