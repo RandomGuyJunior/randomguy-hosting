@@ -7,9 +7,7 @@ function widget:GetInfo()
 		author = "RandomGuyJunior; rendering approach adapted from BAR icon/model tooling",
 		date = "2026-09-30",
 		license = "GNU GPL, v2 or later",
-		-- FlowUI initializes at layer 1000000; stay immediately below it and above
-		-- the native build menus (layer 0) so they cache our wrapped Draw.Unit.
-		layer = 999999,
+		layer = -999997,
 		enabled = true,
 		handler = true,
 	}
@@ -23,9 +21,6 @@ local queued = {}
 local modelShader
 local teamColUniform
 local revision = 0
-local originalFlowUIUnit
-local wrappedFlowUIUnit
-local flowUIWrapped = false
 
 local MODEL_VERT = [[
 	#version 150 compatibility
@@ -185,45 +180,6 @@ local function requestTexture(unitDefID, teamID)
 	return nil
 end
 
-local function getTeamColorTextureForFlowUI(texture)
-	if type(texture) ~= "string" then
-		return texture
-	end
-	local unitDefID = string.match(texture, "^#(%d+)$")
-	if not unitDefID then
-		return texture
-	end
-	local generated = requestTexture(tonumber(unitDefID), Spring.GetLocalTeamID())
-	return generated or texture
-end
-
-local function installFlowUIHook()
-	if flowUIWrapped then
-		return true
-	end
-	if not WG.FlowUI or not WG.FlowUI.Draw or type(WG.FlowUI.Draw.Unit) ~= "function" then
-		return false
-	end
-
-	originalFlowUIUnit = WG.FlowUI.Draw.Unit
-	wrappedFlowUIUnit = function(
-		px, py, sx, sy, cs, tl, tr, br, bl, zoom,
-		borderSize, borderOpacity, texture, radarTexture, groupTexture,
-		price, queueCount
-	)
-		texture = getTeamColorTextureForFlowUI(texture)
-		return originalFlowUIUnit(
-			px, py, sx, sy, cs, tl, tr, br, bl, zoom,
-			borderSize, borderOpacity, texture, radarTexture, groupTexture,
-			price, queueCount
-		)
-	end
-	WG.FlowUI.Draw.Unit = wrappedFlowUIUnit
-	flowUIWrapped = true
-	Spring.Echo("[Team Color UnitPics] hooked native FlowUI unit portraits")
-	return true
-end
-
 local function processQueue()
 	local n = math.min(MAX_GENERATE_PER_FRAME, #queue)
 	for _ = 1, n do
@@ -270,17 +226,6 @@ function widget:Initialize()
 			return revision
 		end,
 	}
-
-	-- Normally succeeds immediately because this widget is ordered directly
-	-- after FlowUI and before the native Grid/Build menus. Update() retries for
-	-- unusual widget reload ordering.
-	installFlowUIHook()
-end
-
-function widget:Update()
-	if not flowUIWrapped then
-		installFlowUIHook()
-	end
 end
 
 function widget:DrawGenesis()
@@ -296,12 +241,6 @@ function widget:PlayerChanged()
 end
 
 function widget:Shutdown()
-	if flowUIWrapped and WG.FlowUI and WG.FlowUI.Draw and WG.FlowUI.Draw.Unit == wrappedFlowUIUnit then
-		WG.FlowUI.Draw.Unit = originalFlowUIUnit
-	end
-	flowUIWrapped = false
-	wrappedFlowUIUnit = nil
-	originalFlowUIUnit = nil
 	if WG.TeamColorUnitPics then
 		WG.TeamColorUnitPics.Invalidate()
 		WG.TeamColorUnitPics = nil
