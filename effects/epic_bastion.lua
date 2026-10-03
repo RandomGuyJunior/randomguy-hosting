@@ -1,0 +1,46 @@
+return {
+	["epic-bastion-haze-passive"] = {
+		haze = {
+			class = [[CHeatCloudProjectile]],
+			count = 1,
+			air = true,
+			ground = true,
+			water = true,
+			underwater = false,
+			properties = {
+				alwaysVisible = 0,
+				texture = [[explo]],
+				heat = 4,
+				maxheat = 5,
+				heatFalloff = 1.6,
+				size = 7,
+				sizeGrowth = 1.7,
+				pos = [[0, 0, 0]],
+				speed = [[0, 0.08, 0]],
+				drawOrder = 0,
+			},
+		},
+	},
+	["epic-bastion-haze-fire"] = {
+		haze = {
+			class = [[CHeatCloudProjectile]],
+			count = 2,
+			air = true,
+			ground = true,
+			water = true,
+			underwater = false,
+			properties = {
+				alwaysVisible = 1,
+				texture = [[explo]],
+				heat = 12,
+				maxheat = 16,
+				heatFalloff = 2.2,
+				size = 13,
+				sizeGrowth = 3.4,
+				pos = [[-1 r2, -1 r2, -1 r2]],
+				speed = [[0, 0.14, 0]],
+				drawOrder = 0,
+			},
+		},
+	},
+}
