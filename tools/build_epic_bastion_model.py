@@ -148,6 +148,23 @@ def clone_mesh(source,name,offset=(0,0,0),scale=1.0,mirror_x=False):
             indices[i+1],indices[i+2]=indices[i+2],indices[i+1]
     return Piece(name,offset,verts,indices,source.primitive,source.vert_type,[])
 
+def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
+    verts=[]
+    for v in piece.verts:
+        x,y,z,nx,ny,nz,u,w=v
+        verts.append((x*sx+dx,y*sy+dy,z*sz+dz,nx,ny,nz,u,w))
+    piece.verts=verts
+    return piece
+
+def remove_piece(root, name):
+    try:
+        target=find(root,name)
+    except KeyError:
+        return
+    parent=parent_of(root,target)
+    if parent:
+        parent.children=[c for c in parent.children if c is not target]
+
 def download(url,path):
     urllib.request.urlretrieve(url,path)
 
@@ -204,33 +221,59 @@ def rebuild(epic,sol,chim):
         r.offset=(0.0,0.0,0.0)
     ring_anchor.children=rings+anchor_nonrings
 
-    # Sol Invictus-inspired upper frame is only grafted once.
-    if not has("epic_strut_l"):
+    # V3 body redesign: remove the previous top-mounted donor clutter.
+    # The Sol Invictus influence now lives in the lower support architecture.
+    for old_name in (
+        "epic_strut_l","epic_strut_r","epic_pod_l","epic_pod_r",
+        "epic_toroid_l","epic_toroid_r"
+    ):
+        remove_piece(root, old_name)
+
+    arm1=find(root,"armature1")
+    arm2=find(root,"armature2")
+    arm3=find(root,"armature3")
+
+    if not has("body_revamp_v3"):
+        # Extend the three original Bastion structural arms instead of scaling
+        # the entire building. Wider/longer supports expose more of the core.
+        for arm in (arm1,arm2,arm3):
+            transform_mesh(arm, sx=1.18, sy=1.10, sz=1.34, dy=-3.0, dz=4.0)
+
+        # Make the central piston/core assembly narrower and more vertically
+        # separated so the interior machinery and orange energy region read.
+        piston1=find(root,"piston1")
+        piston2=find(root,"piston2")
+        transform_mesh(piston1, sx=0.84, sy=1.12, sz=0.84)
+        transform_mesh(piston2, sx=0.80, sy=1.16, sz=0.80)
+        piston2.offset=(0.0,48.0,0.0)
+
+        # Sol Invictus-style armored support plating, placed on the lower
+        # structural arms rather than cluttering the weapon head.
         sol_lstrut=find(sol.root,"lHeatrayStrut")
         sol_rstrut=find(sol.root,"rHeatrayStrut")
-        sol_lhouse=find(sol.root,"lHeatrayHousing")
-        sol_rhouse=find(sol.root,"rHeatrayHousing")
-        sol_ltor=find(sol.root,"lToroid")
-        sol_rtor=find(sol.root,"rToroid")
-        turret.children.extend([
-            clone_mesh(sol_lstrut,"epic_strut_l",(-31.0,-11.0,-8.0),0.92),
-            clone_mesh(sol_rstrut,"epic_strut_r",(31.0,-11.0,-8.0),0.92),
-            clone_mesh(sol_lhouse,"epic_pod_l",(-34.0,-7.0,-15.0),0.46),
-            clone_mesh(sol_rhouse,"epic_pod_r",(34.0,-7.0,-15.0),0.46),
-            clone_mesh(sol_ltor,"epic_toroid_l",(-19.0,-2.0,-19.0),1.15),
-            clone_mesh(sol_rtor,"epic_toroid_r",(19.0,-2.0,-19.0),1.15),
-        ])
+        support1=clone_mesh(sol_lstrut,"support_plate_1",(0.0,22.0,2.0),1.22)
+        support2=clone_mesh(sol_lstrut,"support_plate_2",(0.0,22.0,2.0),1.22)
+        support3=clone_mesh(sol_rstrut,"support_plate_3",(0.0,22.0,2.0),1.22)
+        arm1.children.append(support1)
+        arm2.children.append(support2)
+        arm3.children.append(support3)
 
-    # Chimera-derived cannon meshes. Reuse existing assemblies if this is a
-    # later pass; otherwise create them.
+        # Script-only points running vertically through the now-visible core.
+        piston1.children.append(empty("coreglow_low",(0.0,8.0,0.0)))
+        piston2.children.append(empty("coreglow_mid",(0.0,5.0,0.0)))
+        turret.children.append(empty("coreglow_high",(0.0,-26.0,0.0)))
+
+        root.children.append(empty("body_revamp_v3",(0.0,0.0,0.0)))
+
+    # Chimera-derived gauss assemblies. Keep the gun geometry, but mount each
+    # cannon directly on one of the two side structural supports.
     chim_base=find(chim.root,"turretPivotBottom")
     chim_house=find(chim.root,"riotcannonHousing")
     chim_barrel=find(chim.root,"riotCannon")
 
     def make_gauss(side):
-        sign=-1 if side=="l" else 1
         prefix="gauss"+side.upper()
-        yaw=clone_mesh(chim_base,prefix+"_yaw",(sign*47.0,-12.0,-5.0),1.55,mirror_x=(side=="r"))
+        yaw=clone_mesh(chim_base,prefix+"_yaw",(0.0,44.0,8.0),1.55,mirror_x=(side=="r"))
         pitch=clone_mesh(chim_house,prefix+"_pitch",(0.0,4.0,1.0),1.32,mirror_x=(side=="r"))
         barrel=clone_mesh(chim_barrel,prefix+"_barrel",(0.0,0.0,10.0),1.75,mirror_x=(side=="r"))
         muzzle=empty(prefix+"_muzzle",(0.0,0.0,28.5))
@@ -242,25 +285,16 @@ def rebuild(epic,sol,chim):
     gauss_l=find(root,"gaussL_yaw") if has("gaussL_yaw") else make_gauss("l")
     gauss_r=find(root,"gaussR_yaw") if has("gaussR_yaw") else make_gauss("r")
 
-    # Detach the gauss assemblies from any prior parent (including the main
-    # beam turret) and mount them on an independent fixed upper deck.
+    # Detach previous mount hierarchy, including the obsolete high gauss deck.
     gauss_set={gauss_l,gauss_r}
     for node in list(walk(root)):
         node.children=[c for c in node.children if c not in gauss_set]
+    remove_piece(root,"gaussdeck")
 
-    piston2=find(root,"piston2")
-    if has("gaussdeck"):
-        gauss_deck=find(root,"gaussdeck")
-        par=parent_of(root,gauss_deck)
-        if par is not piston2:
-            if par:
-                par.children=[c for c in par.children if c is not gauss_deck]
-            piston2.children.append(gauss_deck)
-        gauss_deck.offset=(0.0,72.53,0.0)
-    else:
-        gauss_deck=empty("gaussdeck",(0.0,72.53,0.0))
-        piston2.children.append(gauss_deck)
-    gauss_deck.children=[gauss_l,gauss_r]
+    gauss_l.offset=(0.0,44.0,8.0)
+    gauss_r.offset=(0.0,44.0,8.0)
+    arm2.children.append(gauss_l)
+    arm3.children.append(gauss_r)
 
     epic.radius=max(epic.radius,182.0)
     epic.height=max(epic.height,236.0)
@@ -271,8 +305,9 @@ def validate(model):
     required=[
         "ringanchor","ring","ring2","ring3","ring4","beam_pitch","beam_muzzle",
         "gaussL_yaw","gaussL_pitch","gaussL_barrel","gaussL_muzzle",
-        "gaussR_yaw","gaussR_pitch","gaussR_barrel","gaussR_muzzle","gaussdeck",
-        "epic_strut_l","epic_strut_r","epic_pod_l","epic_pod_r",
+        "gaussR_yaw","gaussR_pitch","gaussR_barrel","gaussR_muzzle",
+        "support_plate_1","support_plate_2","support_plate_3",
+        "coreglow_low","coreglow_mid","coreglow_high","body_revamp_v3",
     ]
     names={p.name for p in walk(model.root)}
     missing=[n for n in required if n not in names]
