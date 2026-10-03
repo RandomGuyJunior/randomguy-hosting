@@ -82,12 +82,6 @@ return {
 				resurrectable = 0,
 			},
 		},
-		sfxtypes = {
-			explosiongenerators = {
-				"custom:epic-bastion-haze-passive",
-				"custom:epic-bastion-haze-fire",
-			},
-		},
 		sounds = {
 			canceldestruct = "cancel2",
 			underattack = "warning1",
@@ -135,6 +129,7 @@ return {
 				weaponvelocity = 1800,
 				customparams = {
 					sweepfire_firetime = 3.2,
+					sweepfire_reloadtime = 4.0,
 				},
 				damage = {
 					default = 360,
