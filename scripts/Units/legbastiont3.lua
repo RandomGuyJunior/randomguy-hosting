@@ -2,6 +2,11 @@ local base = piece("base")
 local turret = piece("turret")
 local aimingArm = piece("aiming_arm")
 local aimSweet = piece("aimy")
+local armPivot2 = piece("armPivot2")
+local armPivot3 = piece("armPivot3")
+local coreGlowLow = piece("coreglow_low")
+local coreGlowMid = piece("coreglow_mid")
+local coreGlowHigh = piece("coreglow_high")
 
 local ringAnchor = piece("ringanchor")
 local ring = piece("ring")
@@ -19,13 +24,6 @@ local gaussRYaw = piece("gaussR_yaw")
 local gaussRPitch = piece("gaussR_pitch")
 local gaussRBarrel = piece("gaussR_barrel")
 local gaussRMuzzle = piece("gaussR_muzzle")
-
-local epicStrutL = piece("epic_strut_l")
-local epicStrutR = piece("epic_strut_r")
-local epicPodL = piece("epic_pod_l")
-local epicPodR = piece("epic_pod_r")
-local epicToroidL = piece("epic_toroid_l")
-local epicToroidR = piece("epic_toroid_r")
 
 local SIG_AIM_MAIN = 1
 local SIG_RING = 2
@@ -52,10 +50,10 @@ local oldHeading
 local targetSwap = false
 
 local rings = {
-	{ piece = ring, axis = y_axis, idle = 120, firing = 180 },
-	{ piece = ring2, axis = x_axis, idle = 90, firing = 120 },
-	{ piece = ring3, axis = x_axis, idle = 60, firing = 90 },
-	{ piece = ring4, axis = z_axis, idle = 30, firing = 60 },
+	{ piece = ring, axis = y_axis, idle = 165, firing = 260 },
+	{ piece = ring2, axis = x_axis, idle = 125, firing = 195 },
+	{ piece = ring3, axis = x_axis, idle = 95, firing = 150 },
+	{ piece = ring4, axis = z_axis, idle = 55, firing = 95 },
 }
 
 local function SetVisualParam(name, value)
@@ -203,15 +201,26 @@ end
 
 local GAUSS_HALF_ARC = math.rad(135)
 
-local function AimGauss(yawPiece, pitchPiece, signal, heading, pitch)
-	-- 270 degree traverse: everything except a 90 degree rear blind wedge.
-	if math.abs(heading) > GAUSS_HALF_ARC then
+local function NormalizeAngle(angle)
+	local twoPi = math.pi * 2
+	while angle > math.pi do angle = angle - twoPi end
+	while angle < -math.pi do angle = angle + twoPi end
+	return angle
+end
+
+local function AimGauss(yawPiece, pitchPiece, signal, parentHeading, heading, pitch)
+	-- The cannon is physically mounted on a support already rotated around
+	-- the Bastion. Convert world-relative aim into that support's local yaw.
+	local localHeading = NormalizeAngle(heading - parentHeading)
+
+	-- 270 degree local traverse: a 90 degree blind wedge behind its mount.
+	if math.abs(localHeading) > GAUSS_HALF_ARC then
 		return false
 	end
 
 	Signal(signal)
 	SetSignalMask(signal)
-	Turn(yawPiece, y_axis, heading, math.rad(70))
+	Turn(yawPiece, y_axis, localHeading, math.rad(70))
 	Turn(pitchPiece, x_axis, -pitch, math.rad(48))
 	WaitForTurn(yawPiece, y_axis)
 	WaitForTurn(pitchPiece, x_axis)
@@ -225,20 +234,27 @@ local function GaussRecoil(barrel, muzzle)
 	Move(barrel, z_axis, 0, 24)
 end
 
+local function CorePulseLoop()
+	while alive do
+		EmitSfx(coreGlowLow, 1025)
+		Sleep(170)
+		EmitSfx(coreGlowMid, 1025)
+		Sleep(170)
+		EmitSfx(coreGlowHigh, 1025)
+		Sleep(900)
+	end
+end
+
 function script.Create()
 	Show(ring)
 	Show(ring2)
 	Show(ring3)
 	Show(ring4)
-	Show(epicStrutL)
-	Show(epicStrutR)
-	Show(epicPodL)
-	Show(epicPodR)
-	Show(epicToroidL)
-	Show(epicToroidR)
 	Show(gaussLYaw)
 	Show(gaussRYaw)
 
+	Turn(armPivot2, y_axis, math.rad(120))
+	Turn(armPivot3, y_axis, math.rad(-120))
 	Move(ringAnchor, y_axis, 0)
 	Turn(beamPitch, x_axis, 0)
 	StopRings()
@@ -249,6 +265,7 @@ function script.Create()
 
 	StartThread(SweepFireLoop)
 	StartThread(CombatIdleLoop)
+	StartThread(CorePulseLoop)
 end
 
 function script.Activate()
@@ -329,7 +346,7 @@ function script.QueryWeapon2()
 end
 
 function script.AimWeapon2(heading, pitch)
-	return AimGauss(gaussLYaw, gaussLPitch, SIG_GAUSS_L, heading, pitch)
+	return AimGauss(gaussLYaw, gaussLPitch, SIG_GAUSS_L, math.rad(120), heading, pitch)
 end
 
 function script.FireWeapon2()
@@ -345,7 +362,7 @@ function script.QueryWeapon3()
 end
 
 function script.AimWeapon3(heading, pitch)
-	return AimGauss(gaussRYaw, gaussRPitch, SIG_GAUSS_R, heading, pitch)
+	return AimGauss(gaussRYaw, gaussRPitch, SIG_GAUSS_R, math.rad(-120), heading, pitch)
 end
 
 function script.FireWeapon3()
@@ -378,8 +395,6 @@ function script.Killed(recentDamage, maxHealth)
 	Explode(gaussLBarrel, fx)
 	Explode(gaussRYaw, fx)
 	Explode(gaussRBarrel, fx)
-	Explode(epicPodL, fx)
-	Explode(epicPodR, fx)
 	Explode(turret, fx)
 	Explode(aimingArm, fx)
 
