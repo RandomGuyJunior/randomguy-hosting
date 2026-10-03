@@ -23,7 +23,9 @@ local SIG_AIM = 1
 local SIG_RESTORE = 2
 
 local active = true
+local alive = true
 local deployed = false
+local firing = false
 local fireSerial = 0
 local fireWindowMs = 3200
 
@@ -38,6 +40,7 @@ local function SetHoverState(value)
 end
 
 local function SetFiringState(value)
+	firing = value
 	SetVisualParam("epic_bastion_firing", value and 1 or 0)
 end
 
@@ -49,6 +52,24 @@ end
 local function FiringSpin()
 	Spin(ring, y_axis, math.rad(360), math.rad(520))
 	Spin(ring2, x_axis, math.rad(-315), math.rad(520))
+end
+
+local function DistortionLoop()
+	while alive do
+		if deployed then
+			if firing then
+				EmitSfx(ring, 1025)
+				EmitSfx(ring2, 1025)
+				Sleep(85)
+			else
+				EmitSfx(ring, 1024)
+				EmitSfx(ring2, 1024)
+				Sleep(240)
+			end
+		else
+			Sleep(120)
+		end
+	end
 end
 
 local function DockRings()
@@ -145,6 +166,7 @@ function script.Create()
 
 	SetHoverState(false)
 	SetFiringState(false)
+	StartThread(DistortionLoop)
 end
 
 function script.Activate()
@@ -193,7 +215,6 @@ function script.FireWeapon1()
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
 	FiringSpin()
-	EmitSfx(lineflare, 1024)
 	StartThread(ClearFiring, fireSerial)
 	StartThread(RestoreAfterDelay)
 end
@@ -210,6 +231,7 @@ function script.SweetSpot()
 end
 
 function script.Killed(recentDamage, maxHealth)
+	alive = false
 	SetHoverState(false)
 	SetFiringState(false)
 
