@@ -221,80 +221,94 @@ def rebuild(epic,sol,chim):
         r.offset=(0.0,0.0,0.0)
     ring_anchor.children=rings+anchor_nonrings
 
-    # V3 body redesign: remove the previous top-mounted donor clutter.
-    # The Sol Invictus influence now lives in the lower support architecture.
+    # V4: fixed visible head with three identical radial turret extensions.
+    # Capture the original lower aiming arm as a donor, then remove all of the
+    # old directional head arms (including the two diagonals beside the rings).
+    try:
+        lower_arm_donor=find(root,"bottomAimingArm")
+    except KeyError:
+        lower_arm_donor=None
+
     for old_name in (
-        "epic_strut_l","epic_strut_r","epic_pod_l","epic_pod_r",
-        "epic_toroid_l","epic_toroid_r"
+        "support_plate_1","support_plate_2","support_plate_3",
+        "gaussL_yaw","gaussR_yaw","gaussdeck",
+        "topArmsPivot","aiming_arm"
     ):
-        remove_piece(root, old_name)
+        remove_piece(root,old_name)
 
-    arm1=find(root,"armature1")
-    arm2=find(root,"armature2")
-    arm3=find(root,"armature3")
+    # Ring/beam aiming is now isolated on invisible pivots. The visible turret
+    # never rotates. The ring assembly rides the invisible yaw pivot.
+    if has("beam_yaw"):
+        beam_yaw=find(root,"beam_yaw")
+    else:
+        beam_yaw=empty("beam_yaw",(0.0,0.0,0.0))
+        turret.children.append(beam_yaw)
 
-    if not has("body_revamp_v3"):
-        # Extend the three original Bastion structural arms instead of scaling
-        # the entire building. Wider/longer supports expose more of the core.
-        for arm in (arm1,arm2,arm3):
-            transform_mesh(arm, sx=1.18, sy=1.10, sz=1.34, dy=-3.0, dz=4.0)
+    ring_parent=parent_of(root,ring_anchor)
+    if ring_parent is not beam_yaw:
+        if ring_parent:
+            ring_parent.children=[c for c in ring_parent.children if c is not ring_anchor]
+        beam_yaw.children.append(ring_anchor)
 
-        # Make the central piston/core assembly narrower and more vertically
-        # separated so the interior machinery and orange energy region read.
-        piston1=find(root,"piston1")
-        piston2=find(root,"piston2")
-        transform_mesh(piston1, sx=0.84, sy=1.12, sz=0.84)
-        transform_mesh(piston2, sx=0.80, sy=1.16, sz=0.80)
-        piston2.offset=(0.0,48.0,0.0)
+    # Clean old V4 extension pieces if this builder is run again.
+    for i in range(1,4):
+        remove_piece(root,f"extension_root_{i}")
 
-        # Sol Invictus-style armored support plating, placed on the lower
-        # structural arms rather than cluttering the weapon head.
-        sol_lstrut=find(sol.root,"lHeatrayStrut")
-        sol_rstrut=find(sol.root,"rHeatrayStrut")
-        support1=clone_mesh(sol_lstrut,"support_plate_1",(0.0,22.0,2.0),1.22)
-        support2=clone_mesh(sol_lstrut,"support_plate_2",(0.0,22.0,2.0),1.22)
-        support3=clone_mesh(sol_rstrut,"support_plate_3",(0.0,22.0,2.0),1.22)
-        arm1.children.append(support1)
-        arm2.children.append(support2)
-        arm3.children.append(support3)
-
-        # Script-only points running vertically through the now-visible core.
-        piston1.children.append(empty("coreglow_low",(0.0,8.0,0.0)))
-        piston2.children.append(empty("coreglow_mid",(0.0,5.0,0.0)))
-        turret.children.append(empty("coreglow_high",(0.0,-26.0,0.0)))
-
-        root.children.append(empty("body_revamp_v3",(0.0,0.0,0.0)))
-
-    # Chimera-derived gauss assemblies. Keep the gun geometry, but mount each
-    # cannon directly on one of the two side structural supports.
-    chim_base=find(chim.root,"turretPivotBottom")
+    chim_turret_base=find(chim.root,"turretBaseHeading")
+    chim_yaw_base=find(chim.root,"turretPivotBottom")
     chim_house=find(chim.root,"riotcannonHousing")
     chim_barrel=find(chim.root,"riotCannon")
+    sol_strut=find(sol.root,"lHeatrayStrut")
+    sol_house=find(sol.root,"lHeatrayHousing")
 
-    def make_gauss(side):
-        prefix="gauss"+side.upper()
-        yaw=clone_mesh(chim_base,prefix+"_yaw",(0.0,44.0,8.0),1.55,mirror_x=(side=="r"))
-        pitch=clone_mesh(chim_house,prefix+"_pitch",(0.0,4.0,1.0),1.32,mirror_x=(side=="r"))
-        barrel=clone_mesh(chim_barrel,prefix+"_barrel",(0.0,0.0,10.0),1.75,mirror_x=(side=="r"))
-        muzzle=empty(prefix+"_muzzle",(0.0,0.0,28.5))
+    if lower_arm_donor is None:
+        # On an already-converted model, reconstruct the donor from the stock
+        # Bastion source downloaded alongside the other donor models.
+        stock_path=os.path.join("/tmp/epic-bastion-donors","legbastion_stock.s3o")
+        if not os.path.exists(stock_path):
+            download("https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/objects3d/Units/legbastion.s3o",stock_path)
+        stock=load(stock_path)
+        lower_arm_donor=find(stock.root,"bottomAimingArm")
+
+    def make_extension(index):
+        root_piece=empty(f"extension_root_{index}",(0.0,-10.0,0.0))
+
+        # Two lower arms directly under the ring, forming one paired radial
+        # support that extends toward this turret's firing direction.
+        arm_a=clone_mesh(lower_arm_donor,f"extension_arm_{index}a",(-7.0,-5.0,7.0),0.92)
+        arm_b=clone_mesh(lower_arm_donor,f"extension_arm_{index}b",(7.0,-5.0,7.0),0.92,mirror_x=True)
+
+        # Diagonal attachment / structural spine under the turret base.
+        brace=clone_mesh(sol_strut,f"extension_brace_{index}",(0.0,-6.0,27.0),1.05)
+
+        # Sol Invictus-like armor is kept low and to the sides so it frames,
+        # rather than intersects, the cannon's traverse volume.
+        plate_l=clone_mesh(sol_strut,f"extension_plate_{index}l",(-12.0,-8.0,34.0),0.78)
+        plate_r=clone_mesh(sol_strut,f"extension_plate_{index}r",(12.0,-8.0,34.0),0.78,mirror_x=True)
+
+        # Proper turret pedestal at the end of the radial extension.
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-1.0,49.0),1.72)
+        yaw=clone_mesh(chim_yaw_base,f"gauss{index}_yaw",(0.0,4.2,0.5),1.58)
+        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
+        barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
+        muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
         barrel.children=[muzzle]
         pitch.children=[barrel]
         yaw.children=[pitch]
-        return yaw
+        pedestal.children=[yaw]
 
-    gauss_l=find(root,"gaussL_yaw") if has("gaussL_yaw") else make_gauss("l")
-    gauss_r=find(root,"gaussR_yaw") if has("gaussR_yaw") else make_gauss("r")
+        root_piece.children=[arm_a,arm_b,brace,plate_l,plate_r,pedestal]
+        return root_piece
 
-    # Detach previous mount hierarchy, including the obsolete high gauss deck.
-    gauss_set={gauss_l,gauss_r}
-    for node in list(walk(root)):
-        node.children=[c for c in node.children if c not in gauss_set]
-    remove_piece(root,"gaussdeck")
+    # All three start geometrically forward; the unit script rotates the
+    # invisible extension roots to 0 / +120 / -120 degrees.
+    for i in range(1,4):
+        turret.children.append(make_extension(i))
 
-    gauss_l.offset=(0.0,44.0,8.0)
-    gauss_r.offset=(0.0,44.0,8.0)
-    arm2.children.append(gauss_l)
-    arm3.children.append(gauss_r)
+    # Marker for validation/versioning.
+    remove_piece(root,"body_revamp_v3")
+    if not has("body_revamp_v4"):
+        root.children.append(empty("body_revamp_v4",(0.0,0.0,0.0)))
 
     epic.radius=max(epic.radius,182.0)
     epic.height=max(epic.height,236.0)
@@ -303,11 +317,14 @@ def rebuild(epic,sol,chim):
 
 def validate(model):
     required=[
-        "ringanchor","ring","ring2","ring3","ring4","beam_pitch","beam_muzzle",
-        "gaussL_yaw","gaussL_pitch","gaussL_barrel","gaussL_muzzle",
-        "gaussR_yaw","gaussR_pitch","gaussR_barrel","gaussR_muzzle",
-        "support_plate_1","support_plate_2","support_plate_3",
-        "coreglow_low","coreglow_mid","coreglow_high","body_revamp_v3",
+        "ringanchor","ring","ring2","ring3","ring4","beam_yaw","beam_pitch","beam_muzzle",
+        "extension_root_1","extension_root_2","extension_root_3",
+        "gauss1_yaw","gauss1_pitch","gauss1_barrel","gauss1_muzzle",
+        "gauss2_yaw","gauss2_pitch","gauss2_barrel","gauss2_muzzle",
+        "gauss3_yaw","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
+        "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
+        "extension_brace_1","extension_brace_2","extension_brace_3",
+        "body_revamp_v4",
     ]
     names={p.name for p in walk(model.root)}
     missing=[n for n in required if n not in names]
