@@ -23,3 +23,5 @@ jobs:
           python3 tools/s3o_inspect.py /tmp/legeheatraymech.s3o
           echo "===== CHIMERA ====="
           python3 tools/s3o_inspect.py /tmp/legapopupdef.s3o
+
+# bounds refresh
