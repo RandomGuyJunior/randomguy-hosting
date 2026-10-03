@@ -20,15 +20,30 @@ local rightAimingArm = piece("rightAimingArm")
 local bottomAimingArm = piece("bottomAimingArm")
 
 local SIG_AIM = 1
+local SIG_RING = 2
 
 local active = true
 local alive = true
 local deployed = false
+local deploying = false
 local firing = false
 local fireSerial = 0
+
+local fireTimeFrames = 96 -- overwritten from sweepfire_firetime (3.2s * 30fps)
 local fireWindowMs = 3200
+local lastFiredFrame = -10000
 local idleDockFrames = 120 -- ~4 seconds at 30 game frames/second
 local lastCombatFrame = 0
+
+local oldHeading
+local targetSwap = false
+
+local rings = {
+	{ piece = ring,  axis = y_axis, idle = 120, firing = 180 },
+	{ piece = ring2, axis = x_axis, idle = 90,  firing = 120 },
+	{ piece = ring3, axis = x_axis, idle = 60,  firing = 90  },
+	{ piece = ring4, axis = z_axis, idle = 30,  firing = 60  },
+}
 
 local function SetVisualParam(name, value)
 	if Spring.SetUnitRulesParam then
@@ -45,81 +60,94 @@ local function SetFiringState(value)
 	SetVisualParam("epic_bastion_firing", value and 1 or 0)
 end
 
-local function HoverSpin()
-	Spin(ring, y_axis, math.rad(190), math.rad(320))
-	Spin(ring2, x_axis, math.rad(-165), math.rad(320))
+local function SpinRings(firingMode, fraction)
+	fraction = fraction or 1
+	local accel = math.rad(200)
+	for i = 1, #rings do
+		local data = rings[i]
+		local target = firingMode and data.firing or data.idle
+		Spin(data.piece, data.axis, math.rad(target * fraction), accel)
+	end
 end
 
-local function FiringSpin()
-	Spin(ring, y_axis, math.rad(360), math.rad(520))
-	Spin(ring2, x_axis, math.rad(-315), math.rad(520))
+local function StopRings()
+	for i = 1, #rings do
+		local data = rings[i]
+		StopSpin(data.piece, data.axis, math.rad(100))
+		Turn(data.piece, data.axis, 0, math.rad(85))
+	end
 end
 
-local function DistortionLoop()
-	while alive do
-		if deployed then
-			if firing then
-				EmitSfx(ring, 1025)
-				EmitSfx(ring2, 1025)
-				Sleep(85)
-			else
-				EmitSfx(ring, 1024)
-				EmitSfx(ring2, 1024)
-				Sleep(240)
-			end
-		else
-			Sleep(120)
-		end
+local function CenterRings(y, speed)
+	for i = 1, #rings do
+		local p = rings[i].piece
+		Move(p, x_axis, 0, speed)
+		Move(p, z_axis, 0, speed)
+		Move(p, y_axis, y, speed)
 	end
 end
 
 local function DockRings()
+	Signal(SIG_RING)
+	SetSignalMask(SIG_RING)
+
+	deploying = false
+	SetFiringState(false)
+
 	if not deployed then
+		StopRings()
+		CenterRings(-10, 20)
 		SetHoverState(false)
-		SetFiringState(false)
 		return
 	end
 
-	SetFiringState(false)
-	StopSpin(ring, y_axis, math.rad(360))
-	StopSpin(ring2, x_axis, math.rad(360))
+	StopRings()
+	CenterRings(-10, 20)
 
-	Turn(ring, y_axis, 0, math.rad(160))
-	Turn(ring2, x_axis, 0, math.rad(160))
-	Turn(ring, x_axis, math.rad(78), math.rad(110))
-	Turn(ring2, z_axis, math.rad(-78), math.rad(110))
+	for i = 1, #rings do
+		WaitForMove(rings[i].piece, y_axis)
+	end
 
-	Move(ring, x_axis, -5, 20)
-	Move(ring2, x_axis, 5, 20)
-	Move(ring, y_axis, -9, 20)
-	Move(ring2, y_axis, -12, 20)
-
-	WaitForMove(ring, y_axis)
-	WaitForMove(ring2, y_axis)
 	deployed = false
 	SetHoverState(false)
 end
 
 local function DeployRings()
-	if deployed then
+	if deployed or deploying then
 		return
 	end
 
-	Turn(ring, x_axis, 0, math.rad(135))
-	Turn(ring2, z_axis, 0, math.rad(135))
-	Move(ring, x_axis, -7, 16)
-	Move(ring2, x_axis, 7, 16)
-	Move(ring, y_axis, 20, 18)
-	Move(ring2, y_axis, 28, 18)
+	Signal(SIG_RING)
+	SetSignalMask(SIG_RING)
+	deploying = true
 
-	WaitForMove(ring, y_axis)
-	WaitForMove(ring2, y_axis)
-	WaitForTurn(ring, x_axis)
-	WaitForTurn(ring2, z_axis)
+	-- All four rings share one geometric centre. They begin rotating
+	-- immediately, then accelerate progressively while the assembly rises.
+	CenterRings(24, 18)
+	SpinRings(false, 0.16)
+	Sleep(320)
+	SpinRings(false, 0.34)
+	Sleep(320)
+	SpinRings(false, 0.52)
+	Sleep(320)
+	SpinRings(false, 0.70)
+	Sleep(320)
+	SpinRings(false, 0.86)
 
+	for i = 1, #rings do
+		WaitForMove(rings[i].piece, y_axis)
+	end
+
+	SpinRings(false, 1.0)
+	deploying = false
 	deployed = true
 	SetHoverState(true)
-	HoverSpin()
+end
+
+local function EnsureDeploying()
+	if not deployed and not deploying then
+		StartThread(DeployRings)
+	end
 end
 
 local function MarkCombatActivity()
@@ -128,16 +156,14 @@ end
 
 local function CombatIdleLoop()
 	while alive do
-		if deployed and active then
+		if (deployed or deploying) and active then
 			local _, _, target = Spring.GetUnitWeaponTarget(unitID, 1)
 			local gameFrame = Spring.GetGameFrame()
 
-			-- A current target or active beam means the Bastion is still in combat.
-			-- Keep the rings airborne indefinitely while targets continue to appear.
 			if target ~= nil or firing then
 				lastCombatFrame = gameFrame
-			elseif gameFrame - lastCombatFrame >= idleDockFrames then
-				DockRings()
+			elseif deployed and gameFrame - lastCombatFrame >= idleDockFrames then
+				StartThread(DockRings)
 			end
 		end
 		Sleep(250)
@@ -150,14 +176,44 @@ local function ClearFiring(serial)
 		return
 	end
 	SetFiringState(false)
+	targetSwap = false
 	if deployed then
-		HoverSpin()
+		SpinRings(false, 1.0)
 	end
 end
 
+local function SweepFireLoop()
+	while alive do
+		if firing and targetSwap then
+			local frame = Spring.GetGameFrame()
+			if frame < lastFiredFrame + fireTimeFrames then
+				-- Same mechanism used by BAR's stock Legion Bastion:
+				-- FIRE_W1 forces additional beam segments during sweepfire.
+				EmitSfx(fireline, 2048)
+			end
+		end
+		Sleep(20)
+	end
+end
+
+local function HeadingDelta(a, b)
+	if not a or not b then
+		return math.huge
+	end
+	local twoPi = math.pi * 2
+	local d = math.abs(a - b) % twoPi
+	if d > math.pi then
+		d = twoPi - d
+	end
+	return d
+end
+
 function script.Create()
-	Hide(ring3)
-	Hide(ring4)
+	Show(ring)
+	Show(ring2)
+	Show(ring3)
+	Show(ring4)
+
 	Hide(flare)
 	Hide(fireline)
 	Hide(lineflare)
@@ -169,19 +225,16 @@ function script.Create()
 	Turn(rightAimingArm, z_axis, math.rad(-45))
 	Turn(bottomAimingArm, x_axis, 0)
 
-	-- Resting pose: two large donuts visibly lie in the cradle rather than being
-	-- mechanically attached to one another.
-	Move(ring, x_axis, -5)
-	Move(ring2, x_axis, 5)
-	Move(ring, y_axis, -9)
-	Move(ring2, y_axis, -12)
-	Turn(ring, x_axis, math.rad(78))
-	Turn(ring2, z_axis, math.rad(-78))
+	-- Epic resting pose: the four gyroscopic rings remain concentric and
+	-- lowered into the cradle rather than being pulled sideways from centre.
+	CenterRings(-10, 0)
+	StopRings()
 
 	SetHoverState(false)
 	SetFiringState(false)
 	lastCombatFrame = Spring.GetGameFrame()
-	StartThread(DistortionLoop)
+
+	StartThread(SweepFireLoop)
 	StartThread(CombatIdleLoop)
 end
 
@@ -214,30 +267,45 @@ function script.AimWeapon1(heading, pitch)
 	SetSignalMask(SIG_AIM)
 
 	MarkCombatActivity()
-	DeployRings()
+	EnsureDeploying()
 
-	Turn(turret, y_axis, heading, math.rad(24))
-	Turn(aimingArm, x_axis, -pitch, math.rad(12))
-	Turn(topArmsPivot, x_axis, -pitch, math.rad(12))
+	-- Stock Bastion treats a meaningful heading change as sweepfire activity.
+	if oldHeading == nil or HeadingDelta(oldHeading, heading) > math.rad(2.75) then
+		targetSwap = true
+	end
+	oldHeading = heading
+
+	Turn(turret, y_axis, heading, math.rad(25))
+	Turn(aimingArm, x_axis, -pitch, math.rad(10))
+	Turn(topArmsPivot, x_axis, -pitch, math.rad(10))
 
 	WaitForTurn(turret, y_axis)
 	WaitForTurn(aimingArm, x_axis)
 
-	return true
+	-- Do not release the weapon until all four rings have completed the lift.
+	while active and alive and not deployed do
+		Sleep(30)
+	end
+
+	return active and alive
 end
 
 function script.FireWeapon1()
 	MarkCombatActivity()
+	lastFiredFrame = Spring.GetGameFrame()
+	targetSwap = true -- guarantee the full sustained sweep, including the first target
+
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
-	FiringSpin()
+	SpinRings(true, 1.0)
 	StartThread(ClearFiring, fireSerial)
 end
 
 function script.SetSweepfireTimeWeapon1(fireTimeValue, reloadTimeValue)
 	if fireTimeValue and fireTimeValue > 0 then
-		-- Sweepfire reports frames in the classic script interface.
-		fireWindowMs = math.max(800, math.floor(fireTimeValue * 33.333))
+		-- LUS receives sweepfire custom time in game frames.
+		fireTimeFrames = math.max(1, fireTimeValue)
+		fireWindowMs = math.max(250, math.floor((fireTimeFrames / 30) * 1000 + 0.5))
 	end
 end
 
@@ -247,6 +315,8 @@ end
 
 function script.Killed(recentDamage, maxHealth)
 	alive = false
+	Signal(SIG_AIM)
+	Signal(SIG_RING)
 	SetHoverState(false)
 	SetFiringState(false)
 
@@ -258,6 +328,8 @@ function script.Killed(recentDamage, maxHealth)
 
 	Explode(ring, fx)
 	Explode(ring2, fx)
+	Explode(ring3, fx)
+	Explode(ring4, fx)
 	Explode(turret, fx)
 	Explode(aimingArm, fx)
 	Explode(leftAimingArm, fx)
