@@ -351,7 +351,7 @@ def main():
     check=load(out)
     validate(check)
     print(f"wrote {out}: radius={check.radius:.1f} height={check.height:.1f}")
-    for name in ("ringanchor","beam_muzzle","gaussL_yaw","gaussL_muzzle","gaussR_yaw","gaussR_muzzle"):
+    for name in ("ringanchor","beam_yaw","beam_muzzle","extension_root_1","gauss1_yaw","gauss1_muzzle","extension_root_2","gauss2_yaw","gauss2_muzzle","extension_root_3","gauss3_yaw","gauss3_muzzle"):
         p=find(check.root,name)
         print(name,p.offset,len(p.verts),len(p.indices))
 
