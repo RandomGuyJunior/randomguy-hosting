@@ -20,12 +20,15 @@ local rightAimingArm = piece("rightAimingArm")
 local bottomAimingArm = piece("bottomAimingArm")
 
 local SIG_AIM = 1
-local SIG_RESTORE = 2
 
 local active = true
+local alive = true
 local deployed = false
+local firing = false
 local fireSerial = 0
 local fireWindowMs = 3200
+local idleDockFrames = 120 -- ~4 seconds at 30 game frames/second
+local lastCombatFrame = 0
 
 local function SetVisualParam(name, value)
 	if Spring.SetUnitRulesParam then
@@ -38,6 +41,7 @@ local function SetHoverState(value)
 end
 
 local function SetFiringState(value)
+	firing = value
 	SetVisualParam("epic_bastion_firing", value and 1 or 0)
 end
 
@@ -49,6 +53,24 @@ end
 local function FiringSpin()
 	Spin(ring, y_axis, math.rad(360), math.rad(520))
 	Spin(ring2, x_axis, math.rad(-315), math.rad(520))
+end
+
+local function DistortionLoop()
+	while alive do
+		if deployed then
+			if firing then
+				EmitSfx(ring, 1025)
+				EmitSfx(ring2, 1025)
+				Sleep(85)
+			else
+				EmitSfx(ring, 1024)
+				EmitSfx(ring2, 1024)
+				Sleep(240)
+			end
+		else
+			Sleep(120)
+		end
+	end
 end
 
 local function DockRings()
@@ -100,12 +122,25 @@ local function DeployRings()
 	HoverSpin()
 end
 
-local function RestoreAfterDelay()
-	Signal(SIG_RESTORE)
-	SetSignalMask(SIG_RESTORE)
-	Sleep(3800)
-	if active then
-		DockRings()
+local function MarkCombatActivity()
+	lastCombatFrame = Spring.GetGameFrame()
+end
+
+local function CombatIdleLoop()
+	while alive do
+		if deployed and active then
+			local _, _, target = Spring.GetUnitWeaponTarget(unitID, 1)
+			local gameFrame = Spring.GetGameFrame()
+
+			-- A current target or active beam means the Bastion is still in combat.
+			-- Keep the rings airborne indefinitely while targets continue to appear.
+			if target ~= nil or firing then
+				lastCombatFrame = gameFrame
+			elseif gameFrame - lastCombatFrame >= idleDockFrames then
+				DockRings()
+			end
+		end
+		Sleep(250)
 	end
 end
 
@@ -145,6 +180,9 @@ function script.Create()
 
 	SetHoverState(false)
 	SetFiringState(false)
+	lastCombatFrame = Spring.GetGameFrame()
+	StartThread(DistortionLoop)
+	StartThread(CombatIdleLoop)
 end
 
 function script.Activate()
@@ -155,7 +193,6 @@ end
 function script.Deactivate()
 	active = false
 	Signal(SIG_AIM)
-	Signal(SIG_RESTORE)
 	StartThread(DockRings)
 	return 0
 end
@@ -176,6 +213,7 @@ function script.AimWeapon1(heading, pitch)
 	Signal(SIG_AIM)
 	SetSignalMask(SIG_AIM)
 
+	MarkCombatActivity()
 	DeployRings()
 
 	Turn(turret, y_axis, heading, math.rad(24))
@@ -185,17 +223,15 @@ function script.AimWeapon1(heading, pitch)
 	WaitForTurn(turret, y_axis)
 	WaitForTurn(aimingArm, x_axis)
 
-	StartThread(RestoreAfterDelay)
 	return true
 end
 
 function script.FireWeapon1()
+	MarkCombatActivity()
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
 	FiringSpin()
-	EmitSfx(lineflare, 1024)
 	StartThread(ClearFiring, fireSerial)
-	StartThread(RestoreAfterDelay)
 end
 
 function script.SetSweepfireTimeWeapon1(fireTimeValue, reloadTimeValue)
@@ -210,6 +246,7 @@ function script.SweetSpot()
 end
 
 function script.Killed(recentDamage, maxHealth)
+	alive = false
 	SetHoverState(false)
 	SetFiringState(false)
 

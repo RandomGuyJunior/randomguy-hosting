@@ -82,6 +82,12 @@ return {
 				resurrectable = 0,
 			},
 		},
+		sfxtypes = {
+			explosiongenerators = {
+				"custom:epic-bastion-haze-passive",
+				"custom:epic-bastion-haze-fire",
+			},
+		},
 		sounds = {
 			canceldestruct = "cancel2",
 			underattack = "warning1",
