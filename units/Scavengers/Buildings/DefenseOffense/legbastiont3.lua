@@ -1,7 +1,7 @@
 return {
 	legbastiont3 = {
 		name = "Epic Bastion",
-		description = "Epic ring-beam fortress with twin heavy gauss cannons",
+		description = "Epic three-way ring-beam fortress with triple heavy gauss cannons",
 		activatewhenbuilt = true,
 		maxacc = 0,
 		maxdec = 0,
@@ -50,7 +50,7 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			epic_model_revision = 3,
+			epic_model_revision = 4,
 		},
 		featuredefs = {
 			dead = {
@@ -118,6 +118,7 @@ return {
 				firetolerance = 300,
 				impulsefactor = 0,
 				laserflaresize = 10,
+				size = 18,
 				name = "Epic Sustained Sweepfire Heat Ray",
 				noselfdamage = true,
 				predictboost = 0.3,
@@ -191,6 +192,12 @@ return {
 				fastautoretargeting = true,
 			},
 			[3] = {
+				badtargetcategory = "VTOL",
+				def = "gausscannon",
+				onlytargetcategory = "SURFACE",
+				fastautoretargeting = true,
+			},
+			[4] = {
 				badtargetcategory = "VTOL",
 				def = "gausscannon",
 				onlytargetcategory = "SURFACE",
