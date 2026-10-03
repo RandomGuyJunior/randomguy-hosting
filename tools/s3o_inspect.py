@@ -10,6 +10,14 @@ def cstr(data, off):
         end = len(data)
     return data[off:end].decode("utf-8", "replace")
 
+def bounds(data, nverts, verts_off):
+    if not nverts:
+        return None
+    VERT=struct.Struct("<8f")
+    pts=[VERT.unpack_from(data,verts_off+i*VERT.size)[:3] for i in range(nverts)]
+    xs=[p[0] for p in pts]; ys=[p[1] for p in pts]; zs=[p[2] for p in pts]
+    return (min(xs),max(xs),min(ys),max(ys),min(zs),max(zs))
+
 def walk(data, off, depth=0, seen=None):
     if seen is None:
         seen=set()
@@ -20,7 +28,9 @@ def walk(data, off, depth=0, seen=None):
     vals=PIECE.unpack_from(data, off)
     name_off,nchild,child_off,nverts,verts_off,vert_type,prim,idx_count,idx_off,coll_off,x,y,z=vals
     name=cstr(data,name_off)
-    print("  "*depth + f"{name} off=({x:.2f},{y:.2f},{z:.2f}) verts={nverts} idx={idx_count} prim={prim} piece@{off}")
+    b=bounds(data,nverts,verts_off)
+    bs="" if b is None else f" bounds=({b[0]:.1f},{b[1]:.1f})({b[2]:.1f},{b[3]:.1f})({b[4]:.1f},{b[5]:.1f})"
+    print("  "*depth + f"{name} off=({x:.2f},{y:.2f},{z:.2f}) verts={nverts} idx={idx_count} prim={prim}{bs} piece@{off}")
     if nchild:
         children=struct.unpack_from("<"+"I"*nchild,data,child_off)
         for child in children:
