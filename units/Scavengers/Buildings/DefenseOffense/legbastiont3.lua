@@ -50,7 +50,7 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			epic_model_revision = 2,
+			epic_model_revision = 3,
 		},
 		featuredefs = {
 			dead = {
@@ -97,6 +97,7 @@ return {
 		sfxtypes = {
 			explosiongenerators = {
 				[1] = "custom:barrelshot-large-impulse",
+				[2] = "custom:epic-bastion-core-pulse",
 			},
 		},
 		weapondefs = {
