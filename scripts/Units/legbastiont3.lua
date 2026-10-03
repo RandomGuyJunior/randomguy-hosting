@@ -1,13 +1,14 @@
 local base = piece("base")
 local turret = piece("turret")
-local aimingArm = piece("aiming_arm")
 local aimSweet = piece("aimy")
+
 local armPivot2 = piece("armPivot2")
 local armPivot3 = piece("armPivot3")
 local coreGlowLow = piece("coreglow_low")
 local coreGlowMid = piece("coreglow_mid")
 local coreGlowHigh = piece("coreglow_high")
 
+local beamYaw = piece("beam_yaw")
 local ringAnchor = piece("ringanchor")
 local ring = piece("ring")
 local ring2 = piece("ring2")
@@ -16,19 +17,30 @@ local ring4 = piece("ring4")
 local beamPitch = piece("beam_pitch")
 local beamMuzzle = piece("beam_muzzle")
 
-local gaussLYaw = piece("gaussL_yaw")
-local gaussLPitch = piece("gaussL_pitch")
-local gaussLBarrel = piece("gaussL_barrel")
-local gaussLMuzzle = piece("gaussL_muzzle")
-local gaussRYaw = piece("gaussR_yaw")
-local gaussRPitch = piece("gaussR_pitch")
-local gaussRBarrel = piece("gaussR_barrel")
-local gaussRMuzzle = piece("gaussR_muzzle")
+local extension1 = piece("extension_root_1")
+local extension2 = piece("extension_root_2")
+local extension3 = piece("extension_root_3")
+
+local gauss1Yaw = piece("gauss1_yaw")
+local gauss1Pitch = piece("gauss1_pitch")
+local gauss1Barrel = piece("gauss1_barrel")
+local gauss1Muzzle = piece("gauss1_muzzle")
+
+local gauss2Yaw = piece("gauss2_yaw")
+local gauss2Pitch = piece("gauss2_pitch")
+local gauss2Barrel = piece("gauss2_barrel")
+local gauss2Muzzle = piece("gauss2_muzzle")
+
+local gauss3Yaw = piece("gauss3_yaw")
+local gauss3Pitch = piece("gauss3_pitch")
+local gauss3Barrel = piece("gauss3_barrel")
+local gauss3Muzzle = piece("gauss3_muzzle")
 
 local SIG_AIM_MAIN = 1
 local SIG_RING = 2
-local SIG_GAUSS_L = 4
-local SIG_GAUSS_R = 8
+local SIG_GAUSS_1 = 4
+local SIG_GAUSS_2 = 8
+local SIG_GAUSS_3 = 16
 
 local active = true
 local alive = true
@@ -38,12 +50,12 @@ local firing = false
 local fireSerial = 0
 
 local RING_RISE = 38
-local RING_RISE_SPEED = 22
+local RING_RISE_SPEED = 44 -- twice the previous deployment speed
 
 local fireTimeFrames = 96
 local fireWindowMs = 3200
 local lastFiredFrame = -10000
-local idleDockFrames = 120
+local idleDockFrames = 90 -- 3 seconds at 30 game frames/second
 local lastCombatFrame = 0
 
 local oldHeading
@@ -71,21 +83,20 @@ local function SetFiringState(value)
 	SetVisualParam("epic_bastion_firing", value and 1 or 0)
 end
 
-local function SpinRings(firingMode, fraction)
-	fraction = fraction or 1
-	local accel = math.rad(200)
+local function SpinRings(firingMode)
+	local accel = math.rad(600)
 	for i = 1, #rings do
 		local data = rings[i]
 		local target = firingMode and data.firing or data.idle
-		Spin(data.piece, data.axis, math.rad(target * fraction), accel)
+		Spin(data.piece, data.axis, math.rad(target), accel)
 	end
 end
 
 local function StopRings()
 	for i = 1, #rings do
 		local data = rings[i]
-		StopSpin(data.piece, data.axis, math.rad(100))
-		Turn(data.piece, data.axis, 0, math.rad(85))
+		StopSpin(data.piece, data.axis, math.rad(180))
+		Turn(data.piece, data.axis, 0, math.rad(120))
 	end
 end
 
@@ -113,23 +124,10 @@ local function DeployRings()
 	SetSignalMask(SIG_RING)
 	deploying = true
 
-	-- The model now gives every ring the same local origin under ringanchor.
-	-- Move the anchor, never the individual rings: this guarantees one centre.
+	-- Full idle rotation begins immediately; no staged acceleration.
+	SpinRings(false)
 	Move(ringAnchor, y_axis, RING_RISE, RING_RISE_SPEED)
-
-	-- Rotation starts immediately and ramps while the anchor rises.
-	SpinRings(false, 0.14)
-	Sleep(280)
-	SpinRings(false, 0.30)
-	Sleep(280)
-	SpinRings(false, 0.47)
-	Sleep(280)
-	SpinRings(false, 0.64)
-	Sleep(280)
-	SpinRings(false, 0.82)
-
 	WaitForMove(ringAnchor, y_axis)
-	SpinRings(false, 1.0)
 
 	deploying = false
 	deployed = true
@@ -157,7 +155,7 @@ local function CombatIdleLoop()
 				StartThread(DockRings)
 			end
 		end
-		Sleep(250)
+		Sleep(200)
 	end
 end
 
@@ -169,7 +167,7 @@ local function ClearFiring(serial)
 	SetFiringState(false)
 	targetSwap = false
 	if deployed then
-		SpinRings(false, 1.0)
+		SpinRings(false)
 	end
 end
 
@@ -178,8 +176,6 @@ local function SweepFireLoop()
 		if firing and targetSwap then
 			local frame = Spring.GetGameFrame()
 			if frame < lastFiredFrame + fireTimeFrames then
-				-- BAR Bastion sweepfire mechanism, now emitted from the
-				-- exact centre of the raised ring assembly.
 				EmitSfx(beamMuzzle, 2048)
 			end
 		end
@@ -209,19 +205,18 @@ local function NormalizeAngle(angle)
 end
 
 local function AimGauss(yawPiece, pitchPiece, signal, parentHeading, heading, pitch)
-	-- The cannon is physically mounted on a support already rotated around
-	-- the Bastion. Convert world-relative aim into that support's local yaw.
 	local localHeading = NormalizeAngle(heading - parentHeading)
 
-	-- 270 degree local traverse: a 90 degree blind wedge behind its mount.
+	-- Exactly 270 degrees of traverse: 90 degree blind wedge directly behind
+	-- each radial turret extension.
 	if math.abs(localHeading) > GAUSS_HALF_ARC then
 		return false
 	end
 
 	Signal(signal)
 	SetSignalMask(signal)
-	Turn(yawPiece, y_axis, localHeading, math.rad(70))
-	Turn(pitchPiece, x_axis, -pitch, math.rad(48))
+	Turn(yawPiece, y_axis, localHeading, math.rad(75))
+	Turn(pitchPiece, x_axis, -pitch, math.rad(52))
 	WaitForTurn(yawPiece, y_axis)
 	WaitForTurn(pitchPiece, x_axis)
 	return alive and active
@@ -229,9 +224,9 @@ end
 
 local function GaussRecoil(barrel, muzzle)
 	EmitSfx(muzzle, 1024)
-	Move(barrel, z_axis, -4.5, 85)
+	Move(barrel, z_axis, -4.5, 90)
 	Sleep(70)
-	Move(barrel, z_axis, 0, 24)
+	Move(barrel, z_axis, 0, 26)
 end
 
 local function CorePulseLoop()
@@ -250,13 +245,23 @@ function script.Create()
 	Show(ring2)
 	Show(ring3)
 	Show(ring4)
-	Show(gaussLYaw)
-	Show(gaussRYaw)
+	Show(gauss1Yaw)
+	Show(gauss2Yaw)
+	Show(gauss3Yaw)
 
+	-- Existing lower Bastion frame keeps its three-way stance.
 	Turn(armPivot2, y_axis, math.rad(120))
 	Turn(armPivot3, y_axis, math.rad(-120))
-	Move(ringAnchor, y_axis, 0)
+
+	-- New turret extensions are three identical radial assemblies.
+	Turn(extension1, y_axis, 0)
+	Turn(extension2, y_axis, math.rad(120))
+	Turn(extension3, y_axis, math.rad(-120))
+
+	-- The visible head stays fixed. Only these invisible beam pivots aim.
+	Turn(beamYaw, y_axis, 0)
 	Turn(beamPitch, x_axis, 0)
+	Move(ringAnchor, y_axis, 0)
 	StopRings()
 
 	SetHoverState(false)
@@ -276,8 +281,9 @@ end
 function script.Deactivate()
 	active = false
 	Signal(SIG_AIM_MAIN)
-	Signal(SIG_GAUSS_L)
-	Signal(SIG_GAUSS_R)
+	Signal(SIG_GAUSS_1)
+	Signal(SIG_GAUSS_2)
+	Signal(SIG_GAUSS_3)
 	StartThread(DockRings)
 	return 0
 end
@@ -306,14 +312,15 @@ function script.AimWeapon1(heading, pitch)
 	end
 	oldHeading = heading
 
-	Turn(turret, y_axis, heading, math.rad(25))
-	Turn(beamPitch, x_axis, -pitch, math.rad(12))
+	-- Invisible internal aiming only. 'turret' is intentionally never turned.
+	Turn(beamYaw, y_axis, heading, math.rad(30))
+	Turn(beamPitch, x_axis, -pitch, math.rad(15))
 
-	WaitForTurn(turret, y_axis)
+	WaitForTurn(beamYaw, y_axis)
 	WaitForTurn(beamPitch, x_axis)
 
 	while active and alive and not deployed do
-		Sleep(30)
+		Sleep(20)
 	end
 
 	return active and alive
@@ -326,7 +333,7 @@ function script.FireWeapon1()
 
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
-	SpinRings(true, 1.0)
+	SpinRings(true)
 	StartThread(ClearFiring, fireSerial)
 end
 
@@ -337,36 +344,31 @@ function script.SetSweepfireTimeWeapon1(fireTimeValue, reloadTimeValue)
 	end
 end
 
-function script.AimFromWeapon2()
-	return gaussLYaw
-end
-
-function script.QueryWeapon2()
-	return gaussLMuzzle
-end
-
+function script.AimFromWeapon2() return gauss1Yaw end
+function script.QueryWeapon2() return gauss1Muzzle end
 function script.AimWeapon2(heading, pitch)
-	return AimGauss(gaussLYaw, gaussLPitch, SIG_GAUSS_L, math.rad(120), heading, pitch)
+	return AimGauss(gauss1Yaw, gauss1Pitch, SIG_GAUSS_1, 0, heading, pitch)
 end
-
 function script.FireWeapon2()
-	StartThread(GaussRecoil, gaussLBarrel, gaussLMuzzle)
+	StartThread(GaussRecoil, gauss1Barrel, gauss1Muzzle)
 end
 
-function script.AimFromWeapon3()
-	return gaussRYaw
-end
-
-function script.QueryWeapon3()
-	return gaussRMuzzle
-end
-
+function script.AimFromWeapon3() return gauss2Yaw end
+function script.QueryWeapon3() return gauss2Muzzle end
 function script.AimWeapon3(heading, pitch)
-	return AimGauss(gaussRYaw, gaussRPitch, SIG_GAUSS_R, math.rad(-120), heading, pitch)
+	return AimGauss(gauss2Yaw, gauss2Pitch, SIG_GAUSS_2, math.rad(120), heading, pitch)
+end
+function script.FireWeapon3()
+	StartThread(GaussRecoil, gauss2Barrel, gauss2Muzzle)
 end
 
-function script.FireWeapon3()
-	StartThread(GaussRecoil, gaussRBarrel, gaussRMuzzle)
+function script.AimFromWeapon4() return gauss3Yaw end
+function script.QueryWeapon4() return gauss3Muzzle end
+function script.AimWeapon4(heading, pitch)
+	return AimGauss(gauss3Yaw, gauss3Pitch, SIG_GAUSS_3, math.rad(-120), heading, pitch)
+end
+function script.FireWeapon4()
+	StartThread(GaussRecoil, gauss3Barrel, gauss3Muzzle)
 end
 
 function script.SweetSpot()
@@ -377,8 +379,9 @@ function script.Killed(recentDamage, maxHealth)
 	alive = false
 	Signal(SIG_AIM_MAIN)
 	Signal(SIG_RING)
-	Signal(SIG_GAUSS_L)
-	Signal(SIG_GAUSS_R)
+	Signal(SIG_GAUSS_1)
+	Signal(SIG_GAUSS_2)
+	Signal(SIG_GAUSS_3)
 	SetHoverState(false)
 	SetFiringState(false)
 
@@ -391,12 +394,13 @@ function script.Killed(recentDamage, maxHealth)
 	for i = 1, #rings do
 		Explode(rings[i].piece, fx)
 	end
-	Explode(gaussLYaw, fx)
-	Explode(gaussLBarrel, fx)
-	Explode(gaussRYaw, fx)
-	Explode(gaussRBarrel, fx)
+	Explode(gauss1Yaw, fx)
+	Explode(gauss1Barrel, fx)
+	Explode(gauss2Yaw, fx)
+	Explode(gauss2Barrel, fx)
+	Explode(gauss3Yaw, fx)
+	Explode(gauss3Barrel, fx)
 	Explode(turret, fx)
-	Explode(aimingArm, fx)
 
 	if severity <= 0.5 then
 		return 1
