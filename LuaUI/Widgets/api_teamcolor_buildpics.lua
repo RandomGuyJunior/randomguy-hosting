@@ -15,13 +15,27 @@ end
 
 local CACHE_SIZE = 256
 local GENERATE_PER_FRAME = 2
+local MAX_CACHE_ENTRIES = 768
 
 local shader
 local originalDrawUnit
 local wrappedDrawUnit
+
 local cache = {}
+local cacheMeta = {}
+local cacheOrder = {}
+local cacheOrderHead = 1
+local cacheOrderTail = 0
+local cacheCount = 0
+
 local queue = {}
+local queueHead = 1
+local queueTail = 0
 local queued = {}
+local failed = {}
+
+local lastLocalTeamID
+local lastLocalColorKey
 
 local HUE_MIN_ARM, HUE_MAX_ARM = 0.50, 0.66
 local HUE_MIN_COR, HUE_MAX_COR = 0.95, 0.035
@@ -173,7 +187,171 @@ end
 local function cacheKey(unitDefID, teamID)
 	local ck, r, g, b = colorKey(teamID)
 	if not ck then return nil end
-	return tostring(unitDefID) .. "@" .. ck, r, g, b
+	return tostring(unitDefID) .. "@" .. ck, r, g, b, ck
+end
+
+local function resetQueueIfEmpty()
+	if queueHead > queueTail then
+		queue = {}
+		queueHead = 1
+		queueTail = 0
+	end
+end
+
+local function enqueue(job)
+	if not job or not job.key or cache[job.key] or failed[job.key] or queued[job.key] then
+		return false
+	end
+	queueTail = queueTail + 1
+	queue[queueTail] = job
+	queued[job.key] = true
+	return true
+end
+
+local function dequeue()
+	while queueHead <= queueTail do
+		local job = queue[queueHead]
+		queue[queueHead] = nil
+		queueHead = queueHead + 1
+		if job then
+			queued[job.key] = nil
+			resetQueueIfEmpty()
+			return job
+		end
+	end
+	resetQueueIfEmpty()
+	return nil
+end
+
+local function deleteCachedKey(key)
+	local tex = cache[key]
+	if tex then
+		gl.DeleteTexture(tex)
+		cache[key] = nil
+		cacheMeta[key] = nil
+		cacheCount = math.max(0, cacheCount - 1)
+	end
+end
+
+local function evictOldest()
+	while cacheOrderHead <= cacheOrderTail do
+		local key = cacheOrder[cacheOrderHead]
+		cacheOrder[cacheOrderHead] = nil
+		cacheOrderHead = cacheOrderHead + 1
+		if key and cache[key] then
+			deleteCachedKey(key)
+			if cacheOrderHead > cacheOrderTail then
+				cacheOrder = {}
+				cacheOrderHead = 1
+				cacheOrderTail = 0
+			end
+			return true
+		end
+	end
+	cacheOrder = {}
+	cacheOrderHead = 1
+	cacheOrderTail = 0
+	return false
+end
+
+local function storeCached(job, tex)
+	if not cache[job.key] then
+		cacheCount = cacheCount + 1
+	end
+	cache[job.key] = tex
+	cacheMeta[job.key] = {
+		unitDefID = job.unitDefID,
+		teamID = job.teamID,
+		colorKey = job.colorKey,
+	}
+	cacheOrderTail = cacheOrderTail + 1
+	cacheOrder[cacheOrderTail] = job.key
+
+	while cacheCount > MAX_CACHE_ENTRIES do
+		if not evictOldest() then
+			break
+		end
+	end
+end
+
+local function invalidateUnit(unitDefID)
+	for key, meta in pairs(cacheMeta) do
+		if meta.unitDefID == unitDefID then
+			deleteCachedKey(key)
+		end
+	end
+	for key in pairs(failed) do
+		local id = tonumber(string.match(key, "^(%d+)@"))
+		if id == unitDefID then
+			failed[key] = nil
+		end
+	end
+	for i = queueHead, queueTail do
+		local job = queue[i]
+		if job and job.unitDefID == unitDefID then
+			queued[job.key] = nil
+			queue[i] = nil
+		end
+	end
+end
+
+local function invalidateColor(color)
+	if not color then return end
+	for key, meta in pairs(cacheMeta) do
+		if meta.colorKey == color then
+			deleteCachedKey(key)
+		end
+	end
+	for key in pairs(failed) do
+		if string.match(key, "@(.+)$") == color then
+			failed[key] = nil
+		end
+	end
+	for i = queueHead, queueTail do
+		local job = queue[i]
+		if job and job.colorKey == color then
+			queued[job.key] = nil
+			queue[i] = nil
+		end
+	end
+end
+
+local function clearFailed(unitDefID)
+	if unitDefID then
+		for key in pairs(failed) do
+			local id = tonumber(string.match(key, "^(%d+)@"))
+			if id == unitDefID then
+				failed[key] = nil
+			end
+		end
+	else
+		failed = {}
+	end
+end
+
+local function refreshLocalColor()
+	local teamID = Spring.GetLocalTeamID()
+	local ck = colorKey(teamID)
+	if lastLocalColorKey and ck and lastLocalColorKey ~= ck then
+		invalidateColor(lastLocalColorKey)
+	end
+	lastLocalTeamID = teamID
+	lastLocalColorKey = ck
+end
+
+local function getStats()
+	local failedCount = 0
+	for _ in pairs(failed) do
+		failedCount = failedCount + 1
+	end
+	return {
+		cached = cacheCount,
+		queued = math.max(0, queueTail - queueHead + 1),
+		failed = failedCount,
+		maxCacheEntries = MAX_CACHE_ENTRIES,
+		localTeamID = lastLocalTeamID,
+		localColorKey = lastLocalColorKey,
+	}
 end
 
 local function setUnitOverrides(unitDefID)
@@ -292,38 +470,40 @@ local function request(unitDefID, teamID)
 	if not unitDefID or not UnitDefs[unitDefID] then return nil end
 	teamID = teamID or Spring.GetLocalTeamID()
 
-	local key, r, g, b = cacheKey(unitDefID, teamID)
+	local key, r, g, b, ck = cacheKey(unitDefID, teamID)
 	if not key then return nil end
 
 	if cache[key] then
 		return cache[key]
 	end
-
-	if not queued[key] then
-		queued[key] = true
-		queue[#queue + 1] = {
-			key = key,
-			unitDefID = unitDefID,
-			teamID = teamID,
-			r = r,
-			g = g,
-			b = b,
-		}
+	if failed[key] then
+		return nil
 	end
+
+	enqueue({
+		key = key,
+		unitDefID = unitDefID,
+		teamID = teamID,
+		colorKey = ck,
+		r = r,
+		g = g,
+		b = b,
+	})
 	return nil
 end
 
 local function processQueue()
-	local count = math.min(GENERATE_PER_FRAME, #queue)
-	for _ = 1, count do
-		local job = table.remove(queue, 1)
-		if job then
-			queued[job.key] = nil
-			if not cache[job.key] then
-				local tex = generate(job)
-				if tex then
-					cache[job.key] = tex
-				end
+	for _ = 1, GENERATE_PER_FRAME do
+		local job = dequeue()
+		if not job then
+			break
+		end
+		if not cache[job.key] and not failed[job.key] then
+			local tex = generate(job)
+			if tex then
+				storeCached(job, tex)
+			else
+				failed[job.key] = true
 			end
 		end
 	end
@@ -396,14 +576,58 @@ function widget:Initialize()
 	end
 
 	WG.FlowUI.Draw.Unit = wrappedDrawUnit
+	refreshLocalColor()
 	WG.TeamColorBuildPics = {
 		GetTexture = request,
+		Invalidate = invalidateUnit,
+		InvalidateColor = invalidateColor,
+		ClearFailed = clearFailed,
+		GetStats = getStats,
 	}
 	Spring.Echo("[Team Color BuildPics] cached native buildpic generator installed")
 end
 
+function widget:PlayerChanged()
+	refreshLocalColor()
+end
+
 function widget:DrawGenesis()
+	refreshLocalColor()
 	processQueue()
+end
+
+function widget:TextCommand(command)
+	if command == "tcpicsstats" then
+		local stats = getStats()
+		Spring.Echo(
+			"[Team Color BuildPics] cached=" .. stats.cached
+				.. " queued=" .. stats.queued
+				.. " failed=" .. stats.failed
+				.. " limit=" .. stats.maxCacheEntries
+				.. " color=" .. tostring(stats.localColorKey)
+		)
+		return true
+	end
+
+	local unitDefID = tonumber(string.match(command, "^tcpicsinvalidate%s+(%d+)$"))
+	if unitDefID then
+		invalidateUnit(unitDefID)
+		Spring.Echo("[Team Color BuildPics] invalidated unitDefID " .. unitDefID)
+		return true
+	end
+
+	local failedUnitDefID = tonumber(string.match(command, "^tcpicsclearfailed%s+(%d+)$"))
+	if failedUnitDefID then
+		clearFailed(failedUnitDefID)
+		Spring.Echo("[Team Color BuildPics] cleared failed cache for unitDefID " .. failedUnitDefID)
+		return true
+	end
+
+	if command == "tcpicsclearfailed" then
+		clearFailed()
+		Spring.Echo("[Team Color BuildPics] cleared all failed cache entries")
+		return true
+	end
 end
 
 function widget:Shutdown()
@@ -416,8 +640,16 @@ function widget:Shutdown()
 		gl.DeleteTexture(tex)
 		cache[key] = nil
 	end
-	for key in pairs(queued) do queued[key] = nil end
-	for i = #queue, 1, -1 do queue[i] = nil end
+	cacheMeta = {}
+	cacheOrder = {}
+	cacheOrderHead = 1
+	cacheOrderTail = 0
+	cacheCount = 0
+	queue = {}
+	queueHead = 1
+	queueTail = 0
+	queued = {}
+	failed = {}
 
 	if shader then
 		shader:Finalize()
