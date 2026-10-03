@@ -1,11 +1,11 @@
 function widget:GetInfo()
 	return {
 		name = "Epic Bastion Distortion",
-		desc = "True screen-space heat refraction for the Legion Epic Bastion",
+		desc = "BAR GL4 spatial refraction for the Epic Bastion rings and heat ray",
 		author = "RandomGuy",
 		date = "2026",
 		license = "GNU GPL v2",
-		layer = 0,
+		layer = 1,
 		enabled = true,
 	}
 end
@@ -19,88 +19,139 @@ local spGetUnitPiecePosDir = Spring.GetUnitPiecePosDir
 local targetDefs = {}
 local tracked = {}
 local elapsed = 0
-local cachedPointVBO
+local cachedVBO = {}
 
 local function IsTargetDef(unitDefID)
 	return targetDefs[unitDefID] == true
 end
 
--- BAR's public GetDistortionVBO() currently returns nil. Prefer it if BAR
--- exposes the VBO in future; otherwise retrieve the already-public world VBO
--- map from RemoveDistortion's Lua closure. This keeps RandomGuy a tiny overlay
--- instead of copying the whole Distortion GL4 widget.
-local function GetPointVBO(api)
-	if cachedPointVBO then
-		return cachedPointVBO
+local function GetVBO(api, shape)
+	if cachedVBO[shape] then
+		return cachedVBO[shape]
 	end
 	if api.GetDistortionVBO then
-		cachedPointVBO = api.GetDistortionVBO("point")
-		if cachedPointVBO then
-			return cachedPointVBO
+		cachedVBO[shape] = api.GetDistortionVBO(shape)
+		if cachedVBO[shape] then
+			return cachedVBO[shape]
 		end
 	end
+
+	-- Compatibility fallback for an upstream renderer without the accessor.
 	if debug and debug.getupvalue and api.RemoveDistortion then
 		for i = 1, 32 do
 			local name, value = debug.getupvalue(api.RemoveDistortion, i)
-			if not name then
-				break
-			end
+			if not name then break end
 			if name == "distortionVBOMap" and type(value) == "table" then
-				cachedPointVBO = value.point
-				return cachedPointVBO
+				cachedVBO[shape] = value[shape]
+				return cachedVBO[shape]
 			end
 		end
 	end
 	return nil
 end
 
-local function NewHeatParams(x, y, z, mode)
+local function EmptyParams()
 	local p = {}
-	for i = 1, 29 do
-		p[i] = 0
-	end
-
-	local firing = mode == 2
-	p[1], p[2], p[3] = x, y, z
-	p[4] = firing and 82 or 58          -- radius
-	p[10] = firing and 1.35 or 0.72    -- effectStrength
-	p[11] = 0.40                        -- startRadius
-	p[13] = firing and 18 or 8          -- noiseStrength
-	p[14] = firing and 0.045 or 0.065   -- noiseScaleSpace
-	p[15] = 0.50                        -- distanceFalloff
-	p[16] = 0                           -- distort map + models
-	p[18] = 0                           -- persistent until explicitly removed
-	p[19] = firing and 2 or 6           -- rampUp
-	p[20] = 0                           -- decay
-	p[21] = 0.30                        -- riseRate
-	p[23] = -1                          -- windAffected
-	p[24] = 0                           -- heatDistortion
+	for i = 1, 29 do p[i] = 0 end
 	return p
+end
+
+local function PointHeatParams(x, y, z, firing)
+	local p = EmptyParams()
+	p[1], p[2], p[3] = x, y + (firing and 12 or 22), z
+	p[4] = firing and 92 or 62
+	p[10] = firing and 1.65 or 0.48
+	p[11] = firing and 0.32 or 0.46
+	p[13] = firing and 20 or 5.5
+	p[14] = firing and 0.038 or 0.085
+	p[15] = firing and 0.42 or 0.75
+	p[16] = 0
+	p[18] = 0
+	p[19] = firing and 1 or 8
+	p[20] = 0
+	p[21] = firing and 0.45 or 0.18
+	p[23] = -1
+	p[24] = 0
+	return p
+end
+
+local function BeamHeatParams(x, y, z, dx, dy, dz)
+	local p = EmptyParams()
+	local length = 1380
+	p[1], p[2], p[3] = x, y, z
+	p[4] = 24
+	p[5], p[6], p[7] = x + dx * length, y + dy * length, z + dz * length
+	p[10] = 2.35
+	p[11] = 0.22
+	p[13] = 3.2
+	p[14] = 0.028
+	p[15] = 0.55
+	p[16] = 0
+	p[18] = 0
+	p[19] = 0
+	p[20] = 0
+	p[21] = 0.25
+	p[23] = -1
+	p[24] = 0
+	return p
+end
+
+local function RemoveOne(api, shape, id)
+	if id then
+		api.RemoveDistortion(shape, id, nil)
+	end
 end
 
 local function RemoveVisuals(state)
 	local api = WG.distortionsgl4
-	if not api or not state or not state.added then
-		return
+	if not api or not state then return end
+	if state.pointAdded then
+		RemoveOne(api, "point", state.pointId)
+		state.pointAdded = false
 	end
-	api.RemoveDistortion("point", state.id, nil)
-	state.added = false
+	if state.beamAdded then
+		RemoveOne(api, "beam", state.beamId)
+		state.beamAdded = false
+	end
 end
 
-local function GetRingCenter(unitID)
+local function GetPiece(unitID, name)
 	local pieceMap = spGetUnitPieceMap(unitID)
-	if not pieceMap or not pieceMap.ring then
-		return nil
-	end
-	return spGetUnitPiecePosDir(unitID, pieceMap.ring)
+	if not pieceMap then return nil end
+	return pieceMap[name]
 end
 
-local function ApplyVisuals(unitID, state, mode)
+local function AddPoint(unitID, state, firing)
 	local api = WG.distortionsgl4
-	if not api then
-		return false
-	end
+	if not api then return false end
+	local piece = GetPiece(unitID, "ringanchor") or GetPiece(unitID, "ring")
+	if not piece then return false end
+	local x, y, z = spGetUnitPiecePosDir(unitID, piece)
+	if not x then return false end
+	local vbo = GetVBO(api, "point")
+	if not vbo then return false end
+	api.AddDistortion(state.pointId, nil, nil, vbo, PointHeatParams(x, y, z, firing), false)
+	state.pointAdded = true
+	return true
+end
 
+local function AddBeam(unitID, state)
+	local api = WG.distortionsgl4
+	if not api then return false end
+	local piece = GetPiece(unitID, "beam_muzzle")
+	if not piece then return false end
+	local x, y, z, dx, dy, dz = spGetUnitPiecePosDir(unitID, piece)
+	if not x or not dx then return false end
+	local vbo = GetVBO(api, "beam")
+	if not vbo then return false end
+	api.AddDistortion(state.beamId, nil, nil, vbo, BeamHeatParams(x, y, z, dx, dy, dz), false)
+	state.beamAdded = true
+	return true
+end
+
+local function ApplyMode(unitID, state, mode)
+	local api = WG.distortionsgl4
+	if not api then return false end
 	RemoveVisuals(state)
 
 	if mode == 0 then
@@ -108,30 +159,34 @@ local function ApplyVisuals(unitID, state, mode)
 		return true
 	end
 
-	local x, y, z = GetRingCenter(unitID)
-	if not x then
+	if not AddPoint(unitID, state, mode == 2) then
 		return false
 	end
-
-	local vbo = GetPointVBO(api)
-	if not vbo then
-		return false
+	if mode == 2 then
+		AddBeam(unitID, state)
 	end
-
-	api.AddDistortion(state.id, nil, nil, vbo, NewHeatParams(x, y, z, mode), false)
-	state.added = true
 	state.mode = mode
 	return true
 end
 
-local function Track(unitID, unitDefID)
-	if not IsTargetDef(unitDefID) or tracked[unitID] then
-		return
+local function RefreshFiringBeam(unitID, state)
+	local api = WG.distortionsgl4
+	if not api then return end
+	if state.beamAdded then
+		RemoveOne(api, "beam", state.beamId)
+		state.beamAdded = false
 	end
+	AddBeam(unitID, state)
+end
+
+local function Track(unitID, unitDefID)
+	if not IsTargetDef(unitDefID) or tracked[unitID] then return end
 	tracked[unitID] = {
 		mode = -1,
-		added = false,
-		id = "epicbastion_" .. unitID .. "_heat",
+		pointAdded = false,
+		beamAdded = false,
+		pointId = "epicbastion_" .. unitID .. "_ringheat",
+		beamId = "epicbastion_" .. unitID .. "_beamheat",
 	}
 end
 
@@ -165,9 +220,7 @@ end
 
 function widget:Update(dt)
 	elapsed = elapsed + dt
-	if elapsed < 0.10 then
-		return
-	end
+	if elapsed < 0.05 then return end
 	elapsed = 0
 
 	for unitID, state in pairs(tracked) do
@@ -177,8 +230,13 @@ function widget:Update(dt)
 		if hover > 0 then
 			desired = (firing > 0) and 2 or 1
 		end
-		if desired ~= state.mode or (desired > 0 and not state.added) then
-			ApplyVisuals(unitID, state, desired)
+
+		if desired ~= state.mode or (desired > 0 and not state.pointAdded) then
+			ApplyMode(unitID, state, desired)
+		elseif desired == 2 then
+			-- Rebuild only the beam instance so its endpoint follows the
+			-- invisible yaw/pitch pivot while the sustained sweep is moving.
+			RefreshFiringBeam(unitID, state)
 		end
 	end
 end
