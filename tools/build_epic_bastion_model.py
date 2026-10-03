@@ -165,15 +165,14 @@ def rebuild(epic,sol,chim):
     turret=find(root,"turret")
 
     # Fix ring hierarchy: four independent siblings under a single moving anchor.
-    rings=[]
-    for name in ("ring","ring2","ring3","ring4"):
-        r=find(root,name)
-        par=parent_of(root,r)
-        if par:
-            par.children=[c for c in par.children if c is not r]
-        r.children=[c for c in r.children if c.name.lower() not in ("ring","ring2","ring3","ring4")]
+    ring_names=("ring","ring2","ring3","ring4")
+    rings=[find(root,name) for name in ring_names]
+    ring_set=set(rings)
+    for p in list(walk(root)):
+        p.children=[c for c in p.children if c not in ring_set]
+    for r in rings:
+        r.children=[c for c in r.children if c not in ring_set]
         r.offset=(0.0,0.0,0.0)
-        rings.append(r)
 
     ring_anchor=empty("ringanchor",(0.0,0.0,0.0))
     beam_pitch=empty("beam_pitch",(0.0,0.0,0.0))
