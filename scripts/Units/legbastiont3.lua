@@ -63,8 +63,7 @@ local oldHeading
 local targetSwap = false
 
 local rings = {
-	-- Outermost ring tumbles through the center instead of spinning flat on Y.
-	{ piece = ring, axis = z_axis, idle = 660, firing = 1040 },
+	{ piece = ring, axis = y_axis, idle = 660, firing = 1040 },
 	{ piece = ring2, axis = x_axis, idle = 500, firing = 780 },
 	{ piece = ring3, axis = x_axis, idle = 380, firing = 600 },
 	{ piece = ring4, axis = z_axis, idle = 220, firing = 380 },
