@@ -156,6 +156,13 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+def mesh_axis_bounds(piece, axis):
+    """Return min/max local vertex position for x=0, y=1, or z=2."""
+    if not piece.verts:
+        return 0.0, 0.0
+    values=[v[axis] for v in piece.verts]
+    return min(values), max(values)
+
 def shorten_positive_z(piece, target_max_z):
     """Shorten only the forward (+Z) extent while keeping the rear anchored."""
     if not piece.verts:
@@ -320,9 +327,34 @@ def rebuild(epic,sol,chim):
         # The original Bastion armatures are shortened separately so their
         # tips terminate cleanly below/at the turret rather than clipping it.
         mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-5.0,0.0),1.72)
-        yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
-        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
+        pedestal_scale=1.72
+        housing_scale=1.34
+        pedestal_y=-5.0
+        pitch_y=4.0
+        seat_clearance=0.45
+
+        pedestal=clone_mesh(
+            chim_turret_base,
+            f"extension_pedestal_{index}",
+            (0.0,pedestal_y,0.0),
+            pedestal_scale
+        )
+
+        # Seat the upright cannon housing exactly on top of Chimera's diagonal
+        # armor plate. The visible plate keeps its own sloped geometry; only
+        # the invisible yaw pivot is raised enough that the housing's lowest
+        # vertex clears the plate's highest vertex by a tiny gap.
+        _, pedestal_top=mesh_axis_bounds(chim_turret_base,1)
+        housing_bottom,_=mesh_axis_bounds(chim_house,1)
+        seated_y=(
+            pedestal_y
+            + pedestal_top*pedestal_scale
+            + seat_clearance
+            - pitch_y
+            - housing_bottom*housing_scale
+        )
+        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,0.5))
+        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,pitch_y,1.0),housing_scale)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
         barrel.children=[muzzle]
@@ -397,6 +429,14 @@ def validate(model):
             raise RuntimeError(f"extension_mountroot_{i} is not raised 20 units from V10")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
+
+        yaw=find(model.root,f"gauss{i}_yaw")
+        pitch=find(model.root,f"gauss{i}_pitch")
+        pedestal_top=max(v[1] for v in pedestal.verts)+pedestal.offset[1]
+        housing_bottom=min(v[1] for v in pitch.verts)+pitch.offset[1]+yaw.offset[1]
+        gap=housing_bottom-pedestal_top
+        if gap < 0.35 or gap > 0.55:
+            raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
