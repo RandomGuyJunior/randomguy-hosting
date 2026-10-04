@@ -50,6 +50,7 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
+			-- Chimera turretBaseHeading geometry restored untouched
 			epic_model_revision = 7,
 		},
 		featuredefs = {
