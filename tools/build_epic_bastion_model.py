@@ -340,12 +340,12 @@ def rebuild(epic,sol,chim):
         # The visible triangle is the actual Chimera turretBaseHeading. Keep it
         # upright, then seat the cannon directly onto its upper surface.
         # Pull the whole mount inward so the triangle sits closer to the Bastion.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,42.0))
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,39.0))
         pedestal_scale=1.72
         housing_scale=1.34
         pedestal_y=-5.0
         pitch_y=4.0
-        seat_clearance=0.30
+        seat_clearance=0.05
 
         pedestal=clone_mesh(
             chim_turret_base,
@@ -447,7 +447,7 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-66.0,42.0):
+        if mount.offset != (0.0,-66.0,39.0):
             raise RuntimeError(f"extension_mountroot_{i} is not pulled inward to the Chimera base position")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
@@ -458,8 +458,8 @@ def validate(model):
         pedestal_top=pedestal_top_local+pedestal.offset[1]
         housing_bottom=min(v[1] for v in pitch.verts)+pitch.offset[1]+yaw.offset[1]
         gap=housing_bottom-pedestal_top
-        if gap < 0.20 or gap > 0.40:
-            raise RuntimeError(f"gauss{i} is not seated cleanly on Chimera turret base: gap={gap:.3f}")
+        if gap < 0.00 or gap > 0.10:
+            raise RuntimeError(f"gauss{i} is not seated directly on Chimera turret base: gap={gap:.3f}")
 
         contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.25]
         expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
