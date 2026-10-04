@@ -167,15 +167,21 @@ local function classifyBackground(unitDef)
 		return BG_LAND
 	end
 
+	-- Water-only structures belong on the sea background even when they expose
+	-- no useful movedef (or some auxiliary movement metadata).
+	if unitDef.floatOnWater or ((unitDef.minWaterDepth or 0) > 0) then
+		return BG_SEA
+	end
+
 	local md = unitDef.moveDef
 	if md then
 		local smClass = md.smClass
 		local speedClasses = Game.speedModClasses or {}
-		local shipClass = speedClasses.Ship
-		local boatClass = speedClasses.Boat
-		local hoverClass = speedClasses.Hover
+		local shipClass = speedClasses.Ship or speedClasses.ship
+		local boatClass = speedClasses.Boat or speedClasses.boat
+		local hoverClass = speedClasses.Hover or speedClasses.hover
 
-		-- A pure ship/submarine movedef is sea-only.
+		-- Ships and submarines are water-only.
 		if (shipClass ~= nil and smClass == shipClass)
 			or (boatClass ~= nil and smClass == boatClass)
 			or (md.isSubmarine == true)
@@ -183,20 +189,17 @@ local function classifyBackground(unitDef)
 			return BG_SEA
 		end
 
-		-- BAR exposes movedef max-water-depth as .depth in UnitDef.moveDef.
-		-- Hovers are intentionally excluded: user rule is that only true
-		-- amphibious Tank/KBot-style movedefs receive the split background.
-		if smClass ~= hoverClass and md.depth and md.depth >= AMPHIBIOUS_DEPTH then
+		-- Hovers can operate on both land and water, so they use the same split
+		-- presentation as true amphibious Tank/KBot movedefs.
+		if hoverClass ~= nil and smClass == hoverClass then
 			return BG_AMPHIBIOUS
 		end
 
-		return BG_LAND
-	end
-
-	-- Immobile naval structures do not have a movement class. Their placement
-	-- definition is the static equivalent of a sea movedef.
-	if unitDef.floatOnWater or ((unitDef.minWaterDepth or 0) > 0) then
-		return BG_SEA
+		-- BAR exposes movedef max-water-depth as .depth in UnitDef.moveDef.
+		-- Deep-capable non-ship units are true amphibious units.
+		if md.depth and md.depth >= AMPHIBIOUS_DEPTH then
+			return BG_AMPHIBIOUS
+		end
 	end
 
 	return BG_LAND
