@@ -359,8 +359,8 @@ def rebuild(epic,sol,chim):
         # The armor plate below this mount slopes forward. Keep the cannon
         # aiming axes upright, but lean the visible pedestal itself so its
         # upper face follows that plate instead of cutting vertically through
-        # it. Positive X tilt moves the upper part toward +Z (forward).
-        pedestal_forward_tilt=16.0
+        # it. This model's local forward axis needs a negative X tilt.
+        pedestal_forward_tilt=-16.0
         rotate_mesh_x(pedestal,pedestal_forward_tilt)
 
         # Seat the upright cannon housing just above the now-tilted pedestal.
