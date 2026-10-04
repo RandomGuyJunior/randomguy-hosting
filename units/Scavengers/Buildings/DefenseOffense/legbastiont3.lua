@@ -50,6 +50,7 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
+			-- V5: docked rings, lowered reinforced Chimera cannon mounts
 			epic_model_revision = 5,
 		},
 		featuredefs = {
