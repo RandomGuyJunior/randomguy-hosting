@@ -232,7 +232,12 @@ def rebuild(epic,sol,chim):
     for old_name in (
         "support_plate_1","support_plate_2","support_plate_3",
         "gaussL_yaw","gaussR_yaw","gaussdeck",
-        "topArmsPivot","aiming_arm"
+        # Remove the old high two-arm aiming assembly that intersects the rings.
+        # topArmsPivot owns leftAimingArm/rightAimingArm, so removing the pivot
+        # removes both visible arms while leaving the round turret body intact.
+        "topArmsPivot","aiming_arm",
+        # Legacy dark toroid/half-circle decorations high beside the ring stack.
+        "epic_toroid_l","epic_toroid_r"
     ):
         remove_piece(root,old_name)
 
@@ -329,6 +334,11 @@ def validate(model):
     names={p.name for p in walk(model.root)}
     missing=[n for n in required if n not in names]
     if missing: raise RuntimeError("missing pieces: "+", ".join(missing))
+
+    forbidden=("topArmsPivot","leftAimingArm","rightAimingArm","epic_toroid_l","epic_toroid_r")
+    present=[n for n in forbidden if n in names]
+    if present:
+        raise RuntimeError("obsolete ring-clipping/high toroid pieces remain: "+", ".join(present))
     anchor=find(model.root,"ringanchor")
     ring_names={c.name for c in anchor.children}
     for n in ("ring","ring2","ring3","ring4"):
