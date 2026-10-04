@@ -21,6 +21,8 @@ local tracked = {}
 local elapsed = 0
 local cachedVBO = {}
 
+local distortionConfig = VFS.Include("LuaUI/configs/distortionconfigs/epic_bastion.lua")
+
 local function IsTargetDef(unitDefID)
 	return targetDefs[unitDefID] == true
 end
@@ -57,40 +59,42 @@ local function EmptyParams()
 end
 
 local function PointHeatParams(x, y, z, firing)
+	local cfg = firing and distortionConfig.firing.point or distortionConfig.passive.point
 	local p = EmptyParams()
 	p[1], p[2], p[3] = x, y + (firing and 12 or 22), z
-	p[4] = firing and 92 or 62
-	p[10] = firing and 1.65 or 0.48
-	p[11] = firing and 0.32 or 0.46
-	p[13] = firing and 20 or 5.5
-	p[14] = firing and 0.038 or 0.085
-	p[15] = firing and 0.42 or 0.75
+	p[4] = cfg.radius
+	p[10] = cfg.effectStrength
+	p[11] = cfg.startRadius
+	p[13] = cfg.noiseStrength
+	p[14] = cfg.noiseScaleSpace
+	p[15] = cfg.distanceFalloff
 	p[16] = 0
 	p[18] = 0
-	p[19] = firing and 1 or 8
+	p[19] = cfg.rampUp
 	p[20] = 0
-	p[21] = firing and 0.45 or 0.18
+	p[21] = cfg.riseRate
 	p[23] = -1
 	p[24] = 0
 	return p
 end
 
 local function BeamHeatParams(x, y, z, dx, dy, dz)
+	local cfg = distortionConfig.firing.beam
 	local p = EmptyParams()
-	local length = 1380
+	local length = cfg.length
 	p[1], p[2], p[3] = x, y, z
-	p[4] = 24
+	p[4] = cfg.radius
 	p[5], p[6], p[7] = x + dx * length, y + dy * length, z + dz * length
-	p[10] = 2.35
-	p[11] = 0.22
-	p[13] = 3.2
-	p[14] = 0.028
-	p[15] = 0.55
+	p[10] = cfg.effectStrength
+	p[11] = cfg.startRadius
+	p[13] = cfg.noiseStrength
+	p[14] = cfg.noiseScaleSpace
+	p[15] = cfg.distanceFalloff
 	p[16] = 0
 	p[18] = 0
 	p[19] = 0
 	p[20] = 0
-	p[21] = 0.25
+	p[21] = cfg.riseRate
 	p[23] = -1
 	p[24] = 0
 	return p
@@ -224,12 +228,10 @@ function widget:Update(dt)
 	elapsed = 0
 
 	for unitID, state in pairs(tracked) do
-		local hover = spGetUnitRulesParam(unitID, "epic_bastion_hover") or 0
 		local firing = spGetUnitRulesParam(unitID, "epic_bastion_firing") or 0
-		local desired = 0
-		if hover > 0 then
-			desired = (firing > 0) and 2 or 1
-		end
+		-- Epic Bastion always carries a subtle passive distortion; firing
+		-- upgrades it to the stronger ring + beam profile from the config.
+		local desired = (firing > 0) and 2 or 1
 
 		if desired ~= state.mode or (desired > 0 and not state.pointAdded) then
 			ApplyMode(unitID, state, desired)
