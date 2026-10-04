@@ -62,10 +62,10 @@ local oldHeading
 local targetSwap = false
 
 local rings = {
-	{ piece = ring, axis = y_axis, idle = 165, firing = 260 },
-	{ piece = ring2, axis = x_axis, idle = 125, firing = 195 },
-	{ piece = ring3, axis = x_axis, idle = 95, firing = 150 },
-	{ piece = ring4, axis = z_axis, idle = 55, firing = 95 },
+	{ piece = ring, axis = y_axis, idle = 660, firing = 1040 },
+	{ piece = ring2, axis = x_axis, idle = 500, firing = 780 },
+	{ piece = ring3, axis = x_axis, idle = 380, firing = 600 },
+	{ piece = ring4, axis = z_axis, idle = 220, firing = 380 },
 }
 
 local function SetVisualParam(name, value)
