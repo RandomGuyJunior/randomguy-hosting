@@ -334,23 +334,18 @@ def rebuild(epic,sol,chim):
         arm_a=clone_mesh(lower_arm_donor,f"extension_arm_{index}a",(-7.0,-5.0,7.0),0.92)
         arm_b=clone_mesh(lower_arm_donor,f"extension_arm_{index}b",(7.0,-5.0,7.0),0.92,mirror_x=True)
 
-        # Remove the stretched brace/plate connectors completely. The cannon
-        # pedestal now sits deeper in the model instead of being linked to the
-        # radial holders by long dark geometry.
-        # Keep Chimera's turretBaseHeading geometry untouched. Placement and
-        # scale belong to the Epic Bastion assembly, but the donor mesh itself
-        # must remain an exact clone with no cuts or reshaping.
-        # Raise the cannon assembly 20 units from the previous V10 position.
-        # The original Bastion armatures are shortened separately so their
-        # tips terminate cleanly below/at the turret rather than clipping it.
-        # Move the complete turret mount 3 units back toward the Bastion's
-        # center. The extension roots point outward along local +Z.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,46.0))
+        # Keep only the three good radial holder arms plus the Chimera mount.
+        # No brace/plate connectors are added between the holder and cannon.
+        #
+        # The visible triangle is the actual Chimera turretBaseHeading. Keep it
+        # upright, then seat the cannon directly onto its upper surface.
+        # Pull the whole mount inward so the triangle sits closer to the Bastion.
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,42.0))
         pedestal_scale=1.72
         housing_scale=1.34
         pedestal_y=-5.0
         pitch_y=4.0
-        seat_clearance=0.45
+        seat_clearance=0.30
 
         pedestal=clone_mesh(
             chim_turret_base,
@@ -358,25 +353,20 @@ def rebuild(epic,sol,chim):
             (0.0,pedestal_y,0.0),
             pedestal_scale
         )
-        # Start from the donor's original upright orientation. The cannon's
-        # front is +Z; a positive X rotation moves that front edge downward.
-        # Tip it 90 degrees to horizontal, then another 15 degrees: +105 total.
-        pedestal_forward_down_tilt=105.0
-        rotate_mesh_x(pedestal,pedestal_forward_down_tilt)
 
-        # Seat the upright cannon on the actual top contact region of the
-        # tilted pedestal. A vertical-only test was not enough: after the
-        # pedestal is tilted, its highest surface is shifted along Z.
+        # Find the actual top contact patch of the upright triangular base.
         pedestal_top=max(v[1] for v in pedestal.verts)
         contact_band=[
             v for v in pedestal.verts
-            if v[1] >= pedestal_top - 1.5
+            if v[1] >= pedestal_top - 1.25
         ]
         contact_z=(
             sum(v[2] for v in contact_band)/len(contact_band)
             if contact_band else 0.0
         )
 
+        # The yaw pivot stays invisible, but the cannon housing is now seated
+        # directly on the Chimera triangle instead of hovering above it.
         housing_bottom,_=mesh_axis_bounds(chim_house,1)
         seated_y=(
             pedestal_y
@@ -457,8 +447,8 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-66.0,46.0):
-            raise RuntimeError(f"extension_mountroot_{i} is not moved 3 units inward")
+        if mount.offset != (0.0,-66.0,42.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not pulled inward to the Chimera base position")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
 
@@ -468,8 +458,8 @@ def validate(model):
         pedestal_top=pedestal_top_local+pedestal.offset[1]
         housing_bottom=min(v[1] for v in pitch.verts)+pitch.offset[1]+yaw.offset[1]
         gap=housing_bottom-pedestal_top
-        if gap < 0.35 or gap > 0.55:
-            raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
+        if gap < 0.20 or gap > 0.40:
+            raise RuntimeError(f"gauss{i} is not seated cleanly on Chimera turret base: gap={gap:.3f}")
 
         contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.5]
         expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
@@ -481,10 +471,6 @@ def validate(model):
         if abs(pitch.offset[2]) > 0.01:
             raise RuntimeError(f"gauss{i} housing has an extra Z offset")
 
-        # Orientation is baked from the donor's original upright mesh before
-        # any bounds are recomputed. Do not infer "front" from post-rotation
-        # max/min Z here: after a 105-degree tilt those extrema no longer map
-        # to the donor's original front/rear faces.
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
