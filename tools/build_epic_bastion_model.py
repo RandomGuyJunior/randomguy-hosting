@@ -288,7 +288,12 @@ def rebuild(epic,sol,chim):
         # Keep Chimera's turretBaseHeading geometry untouched. Placement and
         # scale belong to the Epic Bastion assembly, but the donor mesh itself
         # must remain an exact clone with no cuts or reshaping.
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-46.0,49.0),1.72)
+        # Lower the whole cannon mount another 40 units from the current V9
+        # position. Keep the visible Chimera armor plate slightly lower again
+        # so its upper side wings do not intrude into the cannon's resting or
+        # traverse volume.
+        mount=empty(f"extension_mountroot_{index}",(0.0,-86.0,49.0))
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-5.0,0.0),1.72)
         yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
@@ -296,9 +301,9 @@ def rebuild(epic,sol,chim):
         barrel.children=[muzzle]
         pitch.children=[barrel]
         yaw.children=[pitch]
-        pedestal.children=[yaw]
+        mount.children=[pedestal,yaw]
 
-        root_piece.children=[arm_a,arm_b,pedestal]
+        root_piece.children=[arm_a,arm_b,mount]
         return root_piece
 
     # All three start geometrically forward; the unit script rotates the
@@ -325,6 +330,7 @@ def validate(model):
         "gauss1_yaw","gauss1_pitch","gauss1_barrel","gauss1_muzzle",
         "gauss2_yaw","gauss2_pitch","gauss2_barrel","gauss2_muzzle",
         "gauss3_yaw","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
+        "extension_mountroot_1","extension_mountroot_2","extension_mountroot_3",
         "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
         "extension_arm_1a","extension_arm_1b",
         "extension_arm_2a","extension_arm_2b",
@@ -357,6 +363,13 @@ def validate(model):
     for n in ("gauss1_yaw","gauss2_yaw","gauss3_yaw"):
         if find(model.root,n).verts:
             raise RuntimeError(f"{n} should be an invisible aiming pivot")
+    for i in range(1,4):
+        mount=find(model.root,f"extension_mountroot_{i}")
+        pedestal=find(model.root,f"extension_pedestal_{i}")
+        if mount.offset != (0.0,-86.0,49.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not lowered by 40 units")
+        if pedestal.offset != (0.0,-5.0,0.0):
+            raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
     # Chimera turretBaseHeading has 306 indices. Preserve that topology
     # exactly; no wing/clearance cutting is allowed on the donor base.
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
