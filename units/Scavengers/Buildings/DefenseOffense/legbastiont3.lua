@@ -50,8 +50,8 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			-- V12: cannon housings seated cleanly on the diagonal Chimera armor plates
-			epic_model_revision = 9, -- cannons seated on Chimera triangle bases
+			-- V13: Chimera bases moved inward; cannon rear seated over the base
+			epic_model_revision = 10,
 		},
 		featuredefs = {
 			dead = {
