@@ -18,8 +18,12 @@ local GENERATE_PER_FRAME = 2
 local MAX_CACHE_ENTRIES = 768
 
 local shader
+local maskShader
 local originalDrawUnit
 local wrappedDrawUnit
+
+local navalMasks = {}
+local MASK_SIZE = CACHE_SIZE
 
 local cache = {}
 local cacheMeta = {}
@@ -79,6 +83,8 @@ local VERT = [[
 
 local FRAG = [[
 	uniform sampler2D tex0;
+	uniform sampler2D maskTex;
+	uniform float useMask;
 	uniform float targetHue;
 	uniform float targetSat;
 	uniform float refHueMinArm;
@@ -129,6 +135,10 @@ local FRAG = [[
 	void main() {
 		vec4 texColor = texture2D(tex0, texCoord);
 		vec3 hsv = rgb2hsv(texColor.rgb);
+		float maskValue = 1.0;
+		if (useMask > 0.5) {
+			maskValue = texture2D(maskTex, vec2(texCoord.s, 1.0 - texCoord.t)).a;
+		}
 
 		bool matchArm = inHueBand(hsv.x, refHueMinArm, refHueMaxArm)
 			&& hsv.y >= satThresholdArm
@@ -151,13 +161,123 @@ local FRAG = [[
 		bool matchScav = inHueBand(hsv.x, refHueMinScav, refHueMaxScav)
 			&& hsv.y >= satThresholdScav;
 
-		if (matchArm || matchCor || matchLeg || matchScav) {
+		if (maskValue > 0.08 && (matchArm || matchCor || matchLeg || matchScav)) {
 			hsv.x = targetHue;
 			hsv.y = targetSat;
 		}
 		gl_FragColor = vec4(hsv2rgb(hsv), texColor.a);
 	}
 ]]
+
+
+local MASK_VERT = [[
+	#version 150 compatibility
+	void main() {
+		gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+	}
+]]
+
+local MASK_FRAG = [[
+	#version 150 compatibility
+	void main() {
+		gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+	}
+]]
+
+local function isNavalBuildPic(unitDefID)
+	local def = UnitDefs[unitDefID]
+	if not def then return false end
+	return def.floater and (def.minWaterDepth or 0) > 0
+end
+
+local function getUnitDimensions(unitDefID)
+	local dims = Spring.GetUnitDefDimensions(unitDefID)
+	if not dims then return nil end
+	local midx = ((dims.maxx or 0) + (dims.minx or 0)) * 0.5
+	local midy = (math.max(0, dims.maxy or 0) + math.max(0, dims.miny or 0)) * 0.5
+	local midz = ((dims.maxz or 0) + (dims.minz or 0)) * 0.5
+	local ax = math.max(math.abs((dims.maxx or 0) - midx), math.abs((dims.minx or 0) - midx))
+	local ay = math.max(math.abs((dims.maxy or 0) - midy), math.abs((dims.miny or 0) - midy))
+	local az = math.max(math.abs((dims.maxz or 0) - midz), math.abs((dims.minz or 0) - midz))
+	local radius = math.sqrt(ax * ax + ay * ay + az * az)
+	if radius < 1 then radius = 1 end
+	return midx, midy, midz, radius
+end
+
+local function createNavalMask(unitDefID)
+	if navalMasks[unitDefID] then
+		return navalMasks[unitDefID]
+	end
+	if not maskShader or not isNavalBuildPic(unitDefID) then
+		return nil
+	end
+
+	local midx, midy, midz, radius = getUnitDimensions(unitDefID)
+	if not midx then return nil end
+	local half = radius * 1.28
+
+	local tex = gl.CreateTexture(MASK_SIZE, MASK_SIZE, {
+		border = false,
+		min_filter = GL.LINEAR,
+		mag_filter = GL.LINEAR,
+		wrap_s = GL.CLAMP_TO_EDGE,
+		wrap_t = GL.CLAMP_TO_EDGE,
+		fbo = true,
+	})
+	if not tex then return nil end
+
+	local ok = pcall(function()
+		gl.RenderToTexture(tex, function()
+			gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
+			gl.Clear(GL.DEPTH_BUFFER_BIT, 1)
+			gl.DepthTest(true)
+			gl.DepthMask(true)
+			gl.Culling(GL.BACK)
+			gl.Blending(false)
+
+			gl.MatrixMode(GL.PROJECTION)
+			gl.PushMatrix()
+			gl.LoadIdentity()
+			gl.Ortho(-half, half, -half, half, -half * 8, half * 8)
+
+			gl.MatrixMode(GL.MODELVIEW)
+			gl.PushMatrix()
+			gl.LoadIdentity()
+			gl.Rotate(26, 1, 0, 0)
+			gl.Rotate(45, 0, 1, 0)
+			gl.Translate(-midx, -midy, -midz)
+
+			gl.UseShader(maskShader)
+			gl.UnitShape(unitDefID, Spring.GetLocalTeamID(), true, false, true)
+			gl.UseShader(0)
+
+			gl.MatrixMode(GL.PROJECTION)
+			gl.PopMatrix()
+			gl.MatrixMode(GL.MODELVIEW)
+			gl.PopMatrix()
+
+			gl.Culling(false)
+			gl.DepthMask(false)
+			gl.DepthTest(false)
+			gl.Blending(true)
+		end)
+	end)
+
+	if not ok then
+		gl.DeleteTexture(tex)
+		return nil
+	end
+	navalMasks[unitDefID] = tex
+	return tex
+end
+
+local function refreshBuildMenuAfterGeneration()
+	if WG.buildmenu
+			and WG.buildmenu.getShowPrice
+			and WG.buildmenu.setShowPrice then
+		WG.buildmenu.setShowPrice(WG.buildmenu.getShowPrice())
+	end
+end
 
 local function colorKey(teamID)
 	local r, g, b = Spring.GetTeamColor(teamID)
@@ -428,6 +548,7 @@ local function generate(job)
 	if not tex then return nil end
 
 	local source = "#" .. job.unitDefID
+	local mask = createNavalMask(job.unitDefID)
 	local ok = pcall(function()
 		gl.RenderToTexture(tex, function()
 			gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
@@ -441,14 +562,21 @@ local function generate(job)
 
 			gl.Blending(false)
 			gl.Color(1, 1, 1, 1)
-			gl.Texture(source)
+			gl.Texture(0, source)
+			if mask then
+				gl.Texture(1, mask)
+			end
 			shader:Activate()
+			shader:SetUniform("useMask", mask and 1.0 or 0.0)
 			shader:SetUniform("targetHue", hue)
 			shader:SetUniform("targetSat", sat)
 			setUnitOverrides(job.unitDefID)
 			gl.BeginEnd(GL.QUADS, drawGenerationQuad)
 			shader:Deactivate()
-			gl.Texture(false)
+			if mask then
+				gl.Texture(1, false)
+			end
+			gl.Texture(0, false)
 			gl.Blending(true)
 
 			gl.MatrixMode(GL.MODELVIEW)
@@ -493,6 +621,7 @@ local function request(unitDefID, teamID)
 end
 
 local function processQueue()
+	local generatedAny = false
 	for _ = 1, GENERATE_PER_FRAME do
 		local job = dequeue()
 		if not job then
@@ -502,10 +631,14 @@ local function processQueue()
 			local tex = generate(job)
 			if tex then
 				storeCached(job, tex)
+				generatedAny = true
 			else
 				failed[job.key] = true
 			end
 		end
+	end
+	if generatedAny then
+		refreshBuildMenuAfterGeneration()
 	end
 end
 
@@ -518,8 +651,9 @@ function widget:Initialize()
 	shader = gl.LuaShader({
 		vertex = VERT,
 		fragment = FRAG,
-		uniformInt = { tex0 = 0 },
+		uniformInt = { tex0 = 0, maskTex = 1 },
 		uniformFloat = {
+			useMask = 0,
 			targetHue = 0,
 			targetSat = 0,
 			refHueMinArm = HUE_MIN_ARM,
@@ -552,6 +686,15 @@ function widget:Initialize()
 		shader = nil
 		widgetHandler:RemoveWidget()
 		return
+	end
+
+	maskShader = gl.CreateShader({
+		vertex = MASK_VERT,
+		fragment = MASK_FRAG,
+	})
+	if not maskShader or maskShader == 0 then
+		Spring.Echo("[Team Color BuildPics] naval mask shader failed:", tostring(gl.GetShaderLog()))
+		maskShader = nil
 	end
 
 	originalDrawUnit = WG.FlowUI.Draw.Unit
@@ -636,6 +779,11 @@ function widget:Shutdown()
 	end
 	WG.TeamColorBuildPics = nil
 
+	for unitDefID, tex in pairs(navalMasks) do
+		gl.DeleteTexture(tex)
+		navalMasks[unitDefID] = nil
+	end
+
 	for key, tex in pairs(cache) do
 		gl.DeleteTexture(tex)
 		cache[key] = nil
@@ -654,5 +802,9 @@ function widget:Shutdown()
 	if shader then
 		shader:Finalize()
 		shader = nil
+	end
+	if maskShader then
+		gl.DeleteShader(maskShader)
+		maskShader = nil
 	end
 end
