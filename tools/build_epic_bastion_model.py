@@ -260,7 +260,6 @@ def rebuild(epic,sol,chim):
         remove_piece(root,f"extension_root_{i}")
 
     chim_turret_base=find(chim.root,"turretBaseHeading")
-    chim_yaw_base=find(chim.root,"turretPivotBottom")
     chim_house=find(chim.root,"riotcannonHousing")
     chim_barrel=find(chim.root,"riotCannon")
     sol_strut=find(sol.root,"lHeatrayStrut")
@@ -293,7 +292,9 @@ def rebuild(epic,sol,chim):
 
         # Proper turret pedestal at the end of the radial extension.
         pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-1.0,49.0),1.72)
-        yaw=clone_mesh(chim_yaw_base,f"gauss{index}_yaw",(0.0,4.2,0.5),1.58)
+        # Keep the yaw pivot for aiming, but make it invisible. The donor's
+        # turretPivotBottom is the dark half-circle above the triangular base.
+        yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
@@ -346,6 +347,9 @@ def validate(model):
     for n in ("ring","ring2","ring3","ring4"):
         if find(model.root,n).offset != (0.0,0.0,0.0):
             raise RuntimeError(f"{n} not centered")
+    for n in ("gauss1_yaw","gauss2_yaw","gauss3_yaw"):
+        if find(model.root,n).verts:
+            raise RuntimeError(f"{n} should be an invisible aiming pivot")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
