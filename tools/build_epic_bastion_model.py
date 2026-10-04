@@ -356,11 +356,11 @@ def rebuild(epic,sol,chim):
             (0.0,pedestal_y,0.0),
             pedestal_scale
         )
-        # Fold the visible Chimera pedestal backward, not forward. A full
-        # 90-degree backward rotation lays it down; push it a little farther
-        # so its face follows the slope of the rear armor plate.
-        pedestal_backward_tilt=-105.0
-        rotate_mesh_x(pedestal,pedestal_backward_tilt)
+        # Start from the donor's original upright orientation. The cannon's
+        # front is +Z; a positive X rotation moves that front edge downward.
+        # Tip it 90 degrees to horizontal, then another 15 degrees: +105 total.
+        pedestal_forward_down_tilt=105.0
+        rotate_mesh_x(pedestal,pedestal_forward_down_tilt)
 
         # Seat the upright cannon housing just above the now-tilted pedestal.
         # Use the transformed pedestal bounds, not the unrotated donor bounds.
@@ -458,9 +458,8 @@ def validate(model):
         if gap < 0.35 or gap > 0.55:
             raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
 
-        # Confirm the pedestal is folded backward beyond 90 degrees. Its
-        # former upper geometry must now sit rearward (-Z), never tipped
-        # forward with the front edge rising.
+        # Confirm the +Z/front edge is lower than the -Z/rear edge after the
+        # requested +105-degree front-down rotation.
         front=[v for v in pedestal.verts if v[2] >= max(x[2] for x in pedestal.verts)-1.0]
         rear=[v for v in pedestal.verts if v[2] <= min(x[2] for x in pedestal.verts)+1.0]
         if front and rear:
