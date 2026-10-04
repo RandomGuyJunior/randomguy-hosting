@@ -343,7 +343,9 @@ def rebuild(epic,sol,chim):
         # Raise the cannon assembly 20 units from the previous V10 position.
         # The original Bastion armatures are shortened separately so their
         # tips terminate cleanly below/at the turret rather than clipping it.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
+        # Move the complete turret mount 3 units back toward the Bastion's
+        # center. The extension roots point outward along local +Z.
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,46.0))
         pedestal_scale=1.72
         housing_scale=1.34
         pedestal_y=-5.0
@@ -362,9 +364,19 @@ def rebuild(epic,sol,chim):
         pedestal_forward_down_tilt=105.0
         rotate_mesh_x(pedestal,pedestal_forward_down_tilt)
 
-        # Seat the upright cannon housing just above the now-tilted pedestal.
-        # Use the transformed pedestal bounds, not the unrotated donor bounds.
+        # Seat the upright cannon on the actual top contact region of the
+        # tilted pedestal. A vertical-only test was not enough: after the
+        # pedestal is tilted, its highest surface is shifted along Z.
         pedestal_top=max(v[1] for v in pedestal.verts)
+        contact_band=[
+            v for v in pedestal.verts
+            if v[1] >= pedestal_top - 1.5
+        ]
+        contact_z=(
+            sum(v[2] for v in contact_band)/len(contact_band)
+            if contact_band else 0.0
+        )
+
         housing_bottom,_=mesh_axis_bounds(chim_house,1)
         seated_y=(
             pedestal_y
@@ -373,8 +385,8 @@ def rebuild(epic,sol,chim):
             - pitch_y
             - housing_bottom*housing_scale
         )
-        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,0.5))
-        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,pitch_y,1.0),housing_scale)
+        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,contact_z))
+        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,pitch_y,0.0),housing_scale)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
         barrel.children=[muzzle]
@@ -445,18 +457,29 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-66.0,49.0):
-            raise RuntimeError(f"extension_mountroot_{i} is not raised 20 units from V10")
+        if mount.offset != (0.0,-66.0,46.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not moved 3 units inward")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
 
         yaw=find(model.root,f"gauss{i}_yaw")
         pitch=find(model.root,f"gauss{i}_pitch")
-        pedestal_top=max(v[1] for v in pedestal.verts)+pedestal.offset[1]
+        pedestal_top_local=max(v[1] for v in pedestal.verts)
+        pedestal_top=pedestal_top_local+pedestal.offset[1]
         housing_bottom=min(v[1] for v in pitch.verts)+pitch.offset[1]+yaw.offset[1]
         gap=housing_bottom-pedestal_top
         if gap < 0.35 or gap > 0.55:
             raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
+
+        contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.5]
+        expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
+        if abs(yaw.offset[2]-expected_z) > 0.01:
+            raise RuntimeError(
+                f"gauss{i} is not centered over pedestal contact region: "
+                f"yawZ={yaw.offset[2]:.3f} expected={expected_z:.3f}"
+            )
+        if abs(pitch.offset[2]) > 0.01:
+            raise RuntimeError(f"gauss{i} housing has an extra Z offset")
 
         # Orientation is baked from the donor's original upright mesh before
         # any bounds are recomputed. Do not infer "front" from post-rotation
