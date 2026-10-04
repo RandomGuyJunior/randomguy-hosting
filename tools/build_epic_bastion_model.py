@@ -356,12 +356,11 @@ def rebuild(epic,sol,chim):
             (0.0,pedestal_y,0.0),
             pedestal_scale
         )
-        # The armor plate below this mount slopes forward. Keep the cannon
-        # aiming axes upright, but lean the visible pedestal itself so its
-        # upper face follows that plate instead of cutting vertically through
-        # it. This model's local forward axis needs a negative X tilt.
-        pedestal_forward_tilt=-16.0
-        rotate_mesh_x(pedestal,pedestal_forward_tilt)
+        # Fold the visible Chimera pedestal backward, not forward. A full
+        # 90-degree backward rotation lays it down; push it a little farther
+        # so its face follows the slope of the rear armor plate.
+        pedestal_backward_tilt=-105.0
+        rotate_mesh_x(pedestal,pedestal_backward_tilt)
 
         # Seat the upright cannon housing just above the now-tilted pedestal.
         # Use the transformed pedestal bounds, not the unrotated donor bounds.
@@ -459,15 +458,16 @@ def validate(model):
         if gap < 0.35 or gap > 0.55:
             raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
 
-        # Confirm the baked pedestal tilt really leans its upper geometry
-        # forward (+Z) rather than remaining upright/backward.
-        upper=[v for v in pedestal.verts if v[1] >= max(x[1] for x in pedestal.verts)-1.0]
-        lower=[v for v in pedestal.verts if v[1] <= min(x[1] for x in pedestal.verts)+1.0]
-        if upper and lower:
-            upper_z=sum(v[2] for v in upper)/len(upper)
-            lower_z=sum(v[2] for v in lower)/len(lower)
-            if upper_z <= lower_z:
-                raise RuntimeError(f"extension_pedestal_{i} does not lean forward")
+        # Confirm the pedestal is folded backward beyond 90 degrees. Its
+        # former upper geometry must now sit rearward (-Z), never tipped
+        # forward with the front edge rising.
+        front=[v for v in pedestal.verts if v[2] >= max(x[2] for x in pedestal.verts)-1.0]
+        rear=[v for v in pedestal.verts if v[2] <= min(x[2] for x in pedestal.verts)+1.0]
+        if front and rear:
+            front_y=sum(v[1] for v in front)/len(front)
+            rear_y=sum(v[1] for v in rear)/len(rear)
+            if front_y >= rear_y:
+                raise RuntimeError(f"extension_pedestal_{i} is not folded backward past 90 degrees")
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
