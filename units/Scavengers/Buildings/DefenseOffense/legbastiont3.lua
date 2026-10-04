@@ -50,8 +50,8 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			-- V14: entire Chimera cannon assembly baked to the 105-degree armor-plate mount
-			epic_model_revision = 11,
+			-- V15: Chimera base and cannon hierarchy seated on the same 105-degree armor slope
+			epic_model_revision = 12,
 		},
 		featuredefs = {
 			dead = {
