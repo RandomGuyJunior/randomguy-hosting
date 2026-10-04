@@ -461,7 +461,7 @@ def validate(model):
         if gap < 0.20 or gap > 0.40:
             raise RuntimeError(f"gauss{i} is not seated cleanly on Chimera turret base: gap={gap:.3f}")
 
-        contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.5]
+        contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.25]
         expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
         if abs(yaw.offset[2]-expected_z) > 0.01:
             raise RuntimeError(
