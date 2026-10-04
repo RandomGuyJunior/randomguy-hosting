@@ -156,6 +156,24 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+def shorten_positive_z(piece, target_max_z):
+    """Shorten only the forward (+Z) extent while keeping the rear anchored."""
+    if not piece.verts:
+        return piece
+    zs=[v[2] for v in piece.verts]
+    min_z=min(zs)
+    max_z=max(zs)
+    if max_z <= target_max_z or max_z <= min_z:
+        return piece
+    scale=(target_max_z-min_z)/(max_z-min_z)
+    verts=[]
+    for v in piece.verts:
+        x,y,z,nx,ny,nz,u,w=v
+        new_z=min_z+(z-min_z)*scale
+        verts.append((x,y,new_z,nx,ny,nz,u,w))
+    piece.verts=verts
+    return piece
+
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -180,6 +198,16 @@ def ensure_donors(tmp):
 def rebuild(epic,sol,chim):
     root=epic.root
     turret=find(root,"turret")
+
+    # The three original Bastion armatures are the armor plates beneath the
+    # radial turret positions. Keep their original shape, but shorten only
+    # their forward reach so they terminate at the turret mount instead of
+    # passing through the cannon volume.
+    for arm_name in ("armature1","armature2","armature3"):
+        try:
+            shorten_positive_z(find(root,arm_name), 23.0)
+        except KeyError:
+            pass
 
     def has(name):
         try:
@@ -288,11 +316,10 @@ def rebuild(epic,sol,chim):
         # Keep Chimera's turretBaseHeading geometry untouched. Placement and
         # scale belong to the Epic Bastion assembly, but the donor mesh itself
         # must remain an exact clone with no cuts or reshaping.
-        # Lower the whole cannon mount another 40 units from the current V9
-        # position. Keep the visible Chimera armor plate slightly lower again
-        # so its upper side wings do not intrude into the cannon's resting or
-        # traverse volume.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-86.0,49.0))
+        # Raise the cannon assembly 20 units from the previous V10 position.
+        # The original Bastion armatures are shortened separately so their
+        # tips terminate cleanly below/at the turret rather than clipping it.
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
         pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-5.0,0.0),1.72)
         yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
@@ -366,10 +393,15 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-86.0,49.0):
-            raise RuntimeError(f"extension_mountroot_{i} is not lowered by 40 units")
+        if mount.offset != (0.0,-66.0,49.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not raised 20 units from V10")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
+    for n in ("armature1","armature2","armature3"):
+        arm=find(model.root,n)
+        if arm.verts and max(v[2] for v in arm.verts) > 23.01:
+            raise RuntimeError(f"{n} still extends into the turret volume")
+
     # Chimera turretBaseHeading has 306 indices. Preserve that topology
     # exactly; no wing/clearance cutting is allowed on the donor base.
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
