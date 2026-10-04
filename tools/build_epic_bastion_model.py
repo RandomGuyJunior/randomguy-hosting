@@ -157,252 +157,76 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     return piece
 
 
-def _boundary_loops(piece):
-    """Return ordered boundary loops for a triangle mesh."""
-    edge_count={}
-    edge_dir={}
-    for i in range(0,len(piece.indices)-2,3):
-        tri=piece.indices[i:i+3]
-        for a,b in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
-            key=(a,b) if a < b else (b,a)
-            edge_count[key]=edge_count.get(key,0)+1
-            edge_dir[key]=(a,b)
-
-    adjacency={}
-    for key,count in edge_count.items():
-        if count != 1:
-            continue
-        a,b=key
-        adjacency.setdefault(a,[]).append(b)
-        adjacency.setdefault(b,[]).append(a)
-
-    loops=[]
-    used=set()
-    for start,neighbors in list(adjacency.items()):
-        for first in neighbors:
-            edge=tuple(sorted((start,first)))
-            if edge in used:
-                continue
-            loop=[start]
-            prev=None
-            cur=start
-            nxt=first
-            guard=0
-            while guard < len(adjacency)+8:
-                guard += 1
-                used.add(tuple(sorted((cur,nxt))))
-                prev,cur=cur,nxt
-                loop.append(cur)
-                if cur == start:
-                    break
-                candidates=[v for v in adjacency.get(cur,[]) if v != prev]
-                if not candidates:
-                    break
-                # Prefer an unused boundary edge so separate loops do not merge.
-                unused=[v for v in candidates if tuple(sorted((cur,v))) not in used]
-                nxt=(unused or candidates)[0]
-            if len(loop) >= 4 and loop[-1] == start:
-                loops.append(loop[:-1])
-    return loops
-
-def _newell_normal(piece, loop):
-    nx=ny=nz=0.0
-    for i,a in enumerate(loop):
-        b=loop[(i+1)%len(loop)]
-        ax,ay,az=piece.verts[a][0:3]
-        bx,by,bz=piece.verts[b][0:3]
-        nx += (ay-by)*(az+bz)
-        ny += (az-bz)*(ax+bx)
-        nz += (ax-bx)*(ay+by)
+def _interp_vertex(a,b,t):
+    vals=[a[i] + (b[i]-a[i])*t for i in range(8)]
+    nx,ny,nz=vals[3],vals[4],vals[5]
     mag=math.sqrt(nx*nx+ny*ny+nz*nz)
-    if mag < 1e-9:
-        return (0.0,1.0,0.0)
-    return (nx/mag,ny/mag,nz/mag)
+    if mag > 1e-9:
+        vals[3],vals[4],vals[5]=nx/mag,ny/mag,nz/mag
+    return tuple(vals)
 
-def seal_boundary_loops(piece, min_vertices=3):
-    """Cap every exposed boundary loop so trimmed geometry remains watertight."""
-    loops=_boundary_loops(piece)
-    if not loops:
-        return piece
-
-    if piece.verts:
-        mesh_cx=sum(v[0] for v in piece.verts)/len(piece.verts)
-        mesh_cy=sum(v[1] for v in piece.verts)/len(piece.verts)
-        mesh_cz=sum(v[2] for v in piece.verts)/len(piece.verts)
-    else:
-        mesh_cx=mesh_cy=mesh_cz=0.0
-
-    capped=0
-    for loop in loops:
-        if len(loop) < min_vertices:
-            continue
-        cx=sum(piece.verts[i][0] for i in loop)/len(loop)
-        cy=sum(piece.verts[i][1] for i in loop)/len(loop)
-        cz=sum(piece.verts[i][2] for i in loop)/len(loop)
-        nx,ny,nz=_newell_normal(piece,loop)
-
-        # Flip the cap normal outward relative to the mesh center.
-        ox,oy,oz=cx-mesh_cx,cy-mesh_cy,cz-mesh_cz
-        if nx*ox + ny*oy + nz*oz < 0:
-            loop=list(reversed(loop))
-            nx,ny,nz=-nx,-ny,-nz
-
-        ref=piece.verts[loop[0]]
-        center=len(piece.verts)
-        piece.verts.append((cx,cy,cz,nx,ny,nz,ref[6],ref[7]))
-        for i,a in enumerate(loop):
-            b=loop[(i+1)%len(loop)]
-            piece.indices.extend([center,a,b])
-        capped += 1
-    piece._sealed_boundary_loops=capped
-    return piece
-
-def make_closed_cylinder_from_piece(piece, radius=11.5, y_min=-53.9, y_max=5.2, segments=32):
-    """Replace visible geometry with a fully closed round pedestal.
-
-    Children are preserved by the Piece object; only this piece's own mesh is
-    replaced. Texture coordinates are sampled from the original mesh.
-    """
-    old_verts=list(piece.verts)
-    if old_verts:
-        ref=min(old_verts, key=lambda v: abs(v[0])+abs(v[2]))
-        u0,v0=ref[6],ref[7]
-    else:
-        u0,v0=0.5,0.5
-
-    verts=[]
-    indices=[]
-
-    # Side rings.
-    bottom=[]
-    top=[]
-    for i in range(segments):
-        a=(math.pi*2.0*i)/segments
-        x=math.cos(a)*radius
-        z=math.sin(a)*radius
-        nx=math.cos(a)
-        nz=math.sin(a)
-        u=i/segments
-        bottom.append(len(verts))
-        verts.append((x,y_min,z,nx,0.0,nz,u,v0))
-        top.append(len(verts))
-        verts.append((x,y_max,z,nx,0.0,nz,u,v0))
-
-    for i in range(segments):
-        j=(i+1)%segments
-        indices.extend([bottom[i],bottom[j],top[j]])
-        indices.extend([bottom[i],top[j],top[i]])
-
-    # Top cap.
-    top_center=len(verts)
-    verts.append((0.0,y_max,0.0,0.0,1.0,0.0,u0,v0))
-    for i in range(segments):
-        j=(i+1)%segments
-        indices.extend([top_center,top[i],top[j]])
-
-    # Bottom cap.
-    bottom_center=len(verts)
-    verts.append((0.0,y_min,0.0,0.0,-1.0,0.0,u0,v0))
-    for i in range(segments):
-        j=(i+1)%segments
-        indices.extend([bottom_center,bottom[j],bottom[i]])
-
-    piece.verts=verts
-    piece.indices=indices
-    piece.primitive=0
-    piece._closed_round_pedestal=True
-    return piece
-
-def trim_upper_side_wings(piece, x_limit=7.6, y_threshold=0.25):
-    """Remove the two upper left/right overhangs from a triangle mesh.
-
-    The Chimera turretBaseHeading is one mesh, so its upper side wings are not
-    separately named pieces. Keep the central/lower pedestal and discard only
-    triangles whose centroid lies in the high outer side regions.
-    """
-    if piece.primitive != 0:
-        raise ValueError(f"{piece.name}: expected triangle primitive")
-    kept=[]
-    removed=0
-    for i in range(0,len(piece.indices)-2,3):
-        tri=piece.indices[i:i+3]
-        pts=[piece.verts[j] for j in tri]
-        cx=sum(v[0] for v in pts)/3.0
-        cy=sum(v[1] for v in pts)/3.0
-        if abs(cx) > x_limit and cy > y_threshold:
-            removed += 1
-            continue
-        kept.extend(tri)
-    piece.indices=kept
-    piece._trimmed_wing_triangles=removed
-    return piece
-
-
-def trim_armature_wings(piece, x_limit=10.5, y_threshold=2.0):
-    """Cut only the upper lateral wings from the Bastion armature mesh."""
-    if piece.primitive != 0:
-        raise ValueError(f"{piece.name}: expected triangle primitive")
-    kept=[]
-    removed=0
-    for i in range(0,len(piece.indices)-2,3):
-        tri=piece.indices[i:i+3]
-        pts=[piece.verts[j] for j in tri]
-        cx=sum(v[0] for v in pts)/3.0
-        cy=sum(v[1] for v in pts)/3.0
-        # The unwanted wings are the wide, high side lobes. Preserve the
-        # central spine and all lower structural geometry.
-        if abs(cx) > x_limit and cy > y_threshold:
-            removed += 1
-            continue
-        kept.extend(tri)
-    piece.indices=kept
-    piece._trimmed_armature_wing_triangles=removed
-    seal_boundary_loops(piece)
-    return piece
-
-def circularize_turret_top(piece, x_limit=10.5, y_threshold=-2.5, cap_y=5.2, cap_radius=11.5, segments=24):
-    """Remove the turret's two raised side prongs and close it with a round cap."""
+def cut_armature_at_bend(piece, z_cut=12.0):
+    """Cleanly clip the outer bent armature end and close it with a rectangle."""
     if piece.primitive != 0:
         raise ValueError(f"{piece.name}: expected triangle primitive")
 
-    kept=[]
-    removed=0
-    # Keep central turret body; discard only high outer prong triangles.
+    new_verts=[]
+    new_indices=[]
+    cut_points=[]
+
+    def add_vertex(v):
+        idx=len(new_verts)
+        new_verts.append(v)
+        return idx
+
+    def inside(v):
+        return v[2] <= z_cut + 1e-6
+
     for i in range(0,len(piece.indices)-2,3):
-        tri=piece.indices[i:i+3]
-        pts=[piece.verts[j] for j in tri]
-        cx=sum(v[0] for v in pts)/3.0
-        cy=sum(v[1] for v in pts)/3.0
-        if abs(cx) > x_limit and cy > y_threshold:
-            removed += 1
+        poly=[piece.verts[piece.indices[i+j]] for j in range(3)]
+        out=[]
+        for j,a in enumerate(poly):
+            b=poly[(j+1)%len(poly)]
+            a_in=inside(a)
+            b_in=inside(b)
+            if a_in:
+                out.append(a)
+            if a_in != b_in:
+                dz=b[2]-a[2]
+                t=0.0 if abs(dz)<1e-9 else (z_cut-a[2])/dz
+                v=_interp_vertex(a,b,t)
+                out.append(v)
+                cut_points.append(v)
+
+        if len(out) < 3:
             continue
-        kept.extend(tri)
-    piece.indices=kept
+        base=add_vertex(out[0])
+        for j in range(1,len(out)-1):
+            i1=add_vertex(out[j])
+            i2=add_vertex(out[j+1])
+            new_indices.extend([base,i1,i2])
 
-    # Use a nearby existing texture coordinate so the new cap inherits a sane
-    # material sample instead of introducing a new texture dependency.
-    if piece.verts:
-        ref=min(piece.verts, key=lambda v: abs(v[0]) + abs(v[2]) + abs(v[1]-cap_y))
-        u0,v0=ref[6],ref[7]
-    else:
-        u0,v0=0.5,0.5
+    if len(cut_points) < 2:
+        raise RuntimeError(f"{piece.name}: cut plane did not intersect mesh")
 
-    center_idx=len(piece.verts)
-    piece.verts.append((0.0,cap_y,0.0,0.0,1.0,0.0,u0,v0))
-    rim=[]
-    for i in range(segments):
-        a=(math.pi*2.0*i)/segments
-        x=math.cos(a)*cap_radius
-        z=math.sin(a)*cap_radius
-        rim.append(len(piece.verts))
-        piece.verts.append((x,cap_y,z,0.0,1.0,0.0,u0,v0))
+    minx=min(v[0] for v in cut_points)
+    maxx=max(v[0] for v in cut_points)
+    miny=min(v[1] for v in cut_points)
+    maxy=max(v[1] for v in cut_points)
+    u=sum(v[6] for v in cut_points)/len(cut_points)
+    w=sum(v[7] for v in cut_points)/len(cut_points)
 
-    for i in range(segments):
-        j=(i+1)%segments
-        piece.indices.extend([center_idx,rim[j],rim[i]])
+    cap=[
+        (minx,miny,z_cut,0.0,0.0,1.0,u,w),
+        (maxx,miny,z_cut,0.0,0.0,1.0,u,w),
+        (maxx,maxy,z_cut,0.0,0.0,1.0,u,w),
+        (minx,maxy,z_cut,0.0,0.0,1.0,u,w),
+    ]
+    c0=add_vertex(cap[0]); c1=add_vertex(cap[1]); c2=add_vertex(cap[2]); c3=add_vertex(cap[3])
+    new_indices.extend([c0,c1,c2,c0,c2,c3])
 
-    piece._trimmed_turret_prong_triangles=removed
-    piece._added_round_cap_triangles=segments
+    piece.verts=new_verts
+    piece.indices=new_indices
     return piece
 
 def remove_piece(root, name):
@@ -430,15 +254,14 @@ def rebuild(epic,sol,chim):
     root=epic.root
     turret=find(root,"turret")
 
-    # User-identified source geometry cleanup: remove the upper lateral wings
-    # from all three armatures, and turn the main turret top into a clean round
-    # base by cutting its raised side prongs and capping the opening.
+    # Preserve the original turret design; enlarge only its visible mesh so the
+    # built-in upper arms open farther around the unchanged ring stack.
+    transform_mesh(turret, sx=1.18, sy=1.18, sz=1.18)
+
+    # Cleanly remove only the bent outer tips of the three original armatures,
+    # then close each cut with one flat rectangular end plate.
     for arm_name in ("armature1","armature2","armature3"):
-        trim_armature_wings(find(root,arm_name))
-    # The top turret support should be a pure pedestal: no residual side arms,
-    # no open cuts. Replace only the turret piece's visible mesh with a sealed
-    # round pedestal while preserving its child hierarchy.
-    make_closed_cylinder_from_piece(turret, radius=11.5, y_min=-53.9, y_max=5.2, segments=32)
+        cut_armature_at_bend(find(root,arm_name), z_cut=12.0)
 
     def has(name):
         try:
@@ -547,14 +370,8 @@ def rebuild(epic,sol,chim):
         # Keep Chimera's turretBaseHeading geometry untouched. Placement and
         # scale belong to the Epic Bastion assembly, but the donor mesh itself
         # must remain an exact clone with no cuts or reshaping.
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-51.0,49.0),1.72)
-        # Cut only the donor base's two upper side wings; keep the central
-        # triangular pedestal and lower armor intact.
-        trim_upper_side_wings(pedestal, x_limit=7.6 * 1.72, y_threshold=0.25 * 1.72)
-
-        # Move the armor plate 5 units deeper without moving the cannon itself:
-        # compensate the child aiming pivot upward by the same amount.
-        yaw=empty(f"gauss{index}_yaw",(0.0,9.2,0.5))
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-46.0,49.0),1.72)
+        yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
@@ -607,9 +424,7 @@ def validate(model):
         "extension_brace_1","extension_brace_2","extension_brace_3",
         "extension_plate_1l","extension_plate_1r",
         "extension_plate_2l","extension_plate_2r",
-        "extension_plate_3l","extension_plate_3r",
-        "extension_cannon_support_1","extension_cannon_support_2","extension_cannon_support_3",
-        "extension_cannon_plate_1","extension_cannon_plate_2","extension_cannon_plate_3"
+        "extension_plate_3l","extension_plate_3r"
     )
     present=[n for n in forbidden if n in names]
     if present:
@@ -624,33 +439,19 @@ def validate(model):
     for n in ("gauss1_yaw","gauss2_yaw","gauss3_yaw"):
         if find(model.root,n).verts:
             raise RuntimeError(f"{n} should be an invisible aiming pivot")
-    # The Chimera turretBaseHeading donor has 306 indices before trimming.
-    # All three Epic pedestals must have the same reduced topology: enough mesh
-    # remains for the central triangular base, but the upper side wings are gone.
-    pedestal_counts=[]
+    # Chimera turretBaseHeading has 306 indices. Preserve that topology
+    # exactly; no wing/clearance cutting is allowed on the donor base.
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
-        count=len(find(model.root,n).indices)
-        pedestal_counts.append(count)
-        if count >= 306 or count < 180:
-            raise RuntimeError(f"{n} unexpected trimmed pedestal topology: {count} indices")
-    if len(set(pedestal_counts)) != 1:
-        raise RuntimeError("trimmed cannon pedestals are not identical")
+        if len(find(model.root,n).indices) != 306:
+            raise RuntimeError(f"{n} modified Chimera turret-base topology")
 
-    # Armatures must be both trimmed and watertight.
     for n in ("armature1","armature2","armature3"):
         p=find(model.root,n)
-        count=len(p.indices)
-        if count < 240:
-            raise RuntimeError(f"{n} lost too much geometry: {count} indices")
-        if _boundary_loops(p):
-            raise RuntimeError(f"{n} still has open boundary loops")
-
-    # The top visible turret support is now a completely closed round pedestal.
-    tp=find(model.root,"turret")
-    if len(tp.indices) != 32*6 + 32*3 + 32*3:
-        raise RuntimeError(f"turret pedestal unexpected topology: {len(tp.indices)} indices")
-    if _boundary_loops(tp):
-        raise RuntimeError("turret pedestal is not watertight")
+        if any(v[2] > 12.001 for v in p.verts):
+            raise RuntimeError(f"{n} still extends beyond clean cut")
+        capverts=[v for v in p.verts if abs(v[2]-12.0) < 0.001]
+        if len(capverts) < 4:
+            raise RuntimeError(f"{n} rectangular cut cap missing")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
