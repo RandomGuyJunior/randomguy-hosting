@@ -283,15 +283,21 @@ def rebuild(epic,sol,chim):
         arm_b=clone_mesh(lower_arm_donor,f"extension_arm_{index}b",(7.0,-5.0,7.0),0.92,mirror_x=True)
 
         # Diagonal attachment / structural spine under the turret base.
+        # Stretch the existing support downward so it reaches the newly lowered
+        # cannon mount without inventing extra decorative geometry.
         brace=clone_mesh(sol_strut,f"extension_brace_{index}",(0.0,-6.0,27.0),1.05)
+        transform_mesh(brace,sy=2.20)
 
-        # Sol Invictus-like armor is kept low and to the sides so it frames,
-        # rather than intersects, the cannon's traverse volume.
+        # Existing side armor is likewise extended downward. It remains outside
+        # the cannon's traverse volume and now visibly supports the lower mount.
         plate_l=clone_mesh(sol_strut,f"extension_plate_{index}l",(-12.0,-8.0,34.0),0.78)
         plate_r=clone_mesh(sol_strut,f"extension_plate_{index}r",(12.0,-8.0,34.0),0.78,mirror_x=True)
+        transform_mesh(plate_l,sy=2.80)
+        transform_mesh(plate_r,sy=2.80)
 
-        # Proper turret pedestal at the end of the radial extension.
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-1.0,49.0),1.72)
+        # Lower the complete Chimera cannon pedestal exactly 40 model units
+        # from the current V5 position (-1 -> -41).
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-41.0,49.0),1.72)
         # Keep the yaw pivot for aiming, but make it invisible. The donor's
         # turretPivotBottom is the dark half-circle above the triangular base.
         yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
@@ -313,8 +319,10 @@ def rebuild(epic,sol,chim):
 
     # Marker for validation/versioning.
     remove_piece(root,"body_revamp_v3")
-    if not has("body_revamp_v4"):
-        root.children.append(empty("body_revamp_v4",(0.0,0.0,0.0)))
+    remove_piece(root,"body_revamp_v4")
+    remove_piece(root,"body_revamp_v5")
+    if not has("body_revamp_v6"):
+        root.children.append(empty("body_revamp_v6",(0.0,0.0,0.0)))
 
     epic.radius=max(epic.radius,182.0)
     epic.height=max(epic.height,236.0)
@@ -330,7 +338,7 @@ def validate(model):
         "gauss3_yaw","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
         "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
         "extension_brace_1","extension_brace_2","extension_brace_3",
-        "body_revamp_v4",
+        "body_revamp_v6",
     ]
     names={p.name for p in walk(model.root)}
     missing=[n for n in required if n not in names]
