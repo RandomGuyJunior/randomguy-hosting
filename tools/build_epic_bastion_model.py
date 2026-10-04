@@ -156,6 +156,163 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+
+def _boundary_loops(piece):
+    """Return ordered boundary loops for a triangle mesh."""
+    edge_count={}
+    edge_dir={}
+    for i in range(0,len(piece.indices)-2,3):
+        tri=piece.indices[i:i+3]
+        for a,b in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
+            key=(a,b) if a < b else (b,a)
+            edge_count[key]=edge_count.get(key,0)+1
+            edge_dir[key]=(a,b)
+
+    adjacency={}
+    for key,count in edge_count.items():
+        if count != 1:
+            continue
+        a,b=key
+        adjacency.setdefault(a,[]).append(b)
+        adjacency.setdefault(b,[]).append(a)
+
+    loops=[]
+    used=set()
+    for start,neighbors in list(adjacency.items()):
+        for first in neighbors:
+            edge=tuple(sorted((start,first)))
+            if edge in used:
+                continue
+            loop=[start]
+            prev=None
+            cur=start
+            nxt=first
+            guard=0
+            while guard < len(adjacency)+8:
+                guard += 1
+                used.add(tuple(sorted((cur,nxt))))
+                prev,cur=cur,nxt
+                loop.append(cur)
+                if cur == start:
+                    break
+                candidates=[v for v in adjacency.get(cur,[]) if v != prev]
+                if not candidates:
+                    break
+                # Prefer an unused boundary edge so separate loops do not merge.
+                unused=[v for v in candidates if tuple(sorted((cur,v))) not in used]
+                nxt=(unused or candidates)[0]
+            if len(loop) >= 4 and loop[-1] == start:
+                loops.append(loop[:-1])
+    return loops
+
+def _newell_normal(piece, loop):
+    nx=ny=nz=0.0
+    for i,a in enumerate(loop):
+        b=loop[(i+1)%len(loop)]
+        ax,ay,az=piece.verts[a][0:3]
+        bx,by,bz=piece.verts[b][0:3]
+        nx += (ay-by)*(az+bz)
+        ny += (az-bz)*(ax+bx)
+        nz += (ax-bx)*(ay+by)
+    mag=math.sqrt(nx*nx+ny*ny+nz*nz)
+    if mag < 1e-9:
+        return (0.0,1.0,0.0)
+    return (nx/mag,ny/mag,nz/mag)
+
+def seal_boundary_loops(piece, min_vertices=3):
+    """Cap every exposed boundary loop so trimmed geometry remains watertight."""
+    loops=_boundary_loops(piece)
+    if not loops:
+        return piece
+
+    if piece.verts:
+        mesh_cx=sum(v[0] for v in piece.verts)/len(piece.verts)
+        mesh_cy=sum(v[1] for v in piece.verts)/len(piece.verts)
+        mesh_cz=sum(v[2] for v in piece.verts)/len(piece.verts)
+    else:
+        mesh_cx=mesh_cy=mesh_cz=0.0
+
+    capped=0
+    for loop in loops:
+        if len(loop) < min_vertices:
+            continue
+        cx=sum(piece.verts[i][0] for i in loop)/len(loop)
+        cy=sum(piece.verts[i][1] for i in loop)/len(loop)
+        cz=sum(piece.verts[i][2] for i in loop)/len(loop)
+        nx,ny,nz=_newell_normal(piece,loop)
+
+        # Flip the cap normal outward relative to the mesh center.
+        ox,oy,oz=cx-mesh_cx,cy-mesh_cy,cz-mesh_cz
+        if nx*ox + ny*oy + nz*oz < 0:
+            loop=list(reversed(loop))
+            nx,ny,nz=-nx,-ny,-nz
+
+        ref=piece.verts[loop[0]]
+        center=len(piece.verts)
+        piece.verts.append((cx,cy,cz,nx,ny,nz,ref[6],ref[7]))
+        for i,a in enumerate(loop):
+            b=loop[(i+1)%len(loop)]
+            piece.indices.extend([center,a,b])
+        capped += 1
+    piece._sealed_boundary_loops=capped
+    return piece
+
+def make_closed_cylinder_from_piece(piece, radius=11.5, y_min=-53.9, y_max=5.2, segments=32):
+    """Replace visible geometry with a fully closed round pedestal.
+
+    Children are preserved by the Piece object; only this piece's own mesh is
+    replaced. Texture coordinates are sampled from the original mesh.
+    """
+    old_verts=list(piece.verts)
+    if old_verts:
+        ref=min(old_verts, key=lambda v: abs(v[0])+abs(v[2]))
+        u0,v0=ref[6],ref[7]
+    else:
+        u0,v0=0.5,0.5
+
+    verts=[]
+    indices=[]
+
+    # Side rings.
+    bottom=[]
+    top=[]
+    for i in range(segments):
+        a=(math.pi*2.0*i)/segments
+        x=math.cos(a)*radius
+        z=math.sin(a)*radius
+        nx=math.cos(a)
+        nz=math.sin(a)
+        u=i/segments
+        bottom.append(len(verts))
+        verts.append((x,y_min,z,nx,0.0,nz,u,v0))
+        top.append(len(verts))
+        verts.append((x,y_max,z,nx,0.0,nz,u,v0))
+
+    for i in range(segments):
+        j=(i+1)%segments
+        indices.extend([bottom[i],bottom[j],top[j]])
+        indices.extend([bottom[i],top[j],top[i]])
+
+    # Top cap.
+    top_center=len(verts)
+    verts.append((0.0,y_max,0.0,0.0,1.0,0.0,u0,v0))
+    for i in range(segments):
+        j=(i+1)%segments
+        indices.extend([top_center,top[i],top[j]])
+
+    # Bottom cap.
+    bottom_center=len(verts)
+    verts.append((0.0,y_min,0.0,0.0,-1.0,0.0,u0,v0))
+    for i in range(segments):
+        j=(i+1)%segments
+        indices.extend([bottom_center,bottom[j],bottom[i]])
+
+    piece.verts=verts
+    piece.indices=indices
+    piece.primitive=0
+    piece._closed_round_pedestal=True
+    return piece
+
 def trim_upper_side_wings(piece, x_limit=7.6, y_threshold=0.25):
     """Remove the two upper left/right overhangs from a triangle mesh.
 
@@ -200,6 +357,7 @@ def trim_armature_wings(piece, x_limit=10.5, y_threshold=2.0):
         kept.extend(tri)
     piece.indices=kept
     piece._trimmed_armature_wing_triangles=removed
+    seal_boundary_loops(piece)
     return piece
 
 def circularize_turret_top(piece, x_limit=10.5, y_threshold=-2.5, cap_y=5.2, cap_radius=11.5, segments=24):
@@ -277,7 +435,10 @@ def rebuild(epic,sol,chim):
     # base by cutting its raised side prongs and capping the opening.
     for arm_name in ("armature1","armature2","armature3"):
         trim_armature_wings(find(root,arm_name))
-    circularize_turret_top(turret)
+    # The top turret support should be a pure pedestal: no residual side arms,
+    # no open cuts. Replace only the turret piece's visible mesh with a sealed
+    # round pedestal while preserving its child hierarchy.
+    make_closed_cylinder_from_piece(turret, radius=11.5, y_min=-53.9, y_max=5.2, segments=32)
 
     def has(name):
         try:
@@ -475,19 +636,21 @@ def validate(model):
     if len(set(pedestal_counts)) != 1:
         raise RuntimeError("trimmed cannon pedestals are not identical")
 
-    # Validate the serialized result, not transient Python attributes.
-    # Stock armatures contain 480 indices. A successful wing cut must reduce
-    # that count while leaving substantial central structure.
+    # Armatures must be both trimmed and watertight.
     for n in ("armature1","armature2","armature3"):
-        count=len(find(model.root,n).indices)
-        if count >= 480 or count < 240:
-            raise RuntimeError(f"{n} unexpected post-trim topology: {count} indices")
+        p=find(model.root,n)
+        count=len(p.indices)
+        if count < 240:
+            raise RuntimeError(f"{n} lost too much geometry: {count} indices")
+        if _boundary_loops(p):
+            raise RuntimeError(f"{n} still has open boundary loops")
 
-    # Stock turret contains 774 indices. We add a 24-segment cap (72 indices),
-    # so a successful prong cut must still finish below 846 total indices.
-    turret_count=len(find(model.root,"turret").indices)
-    if turret_count >= 846 or turret_count < 450:
-        raise RuntimeError(f"turret unexpected circularized topology: {turret_count} indices")
+    # The top visible turret support is now a completely closed round pedestal.
+    tp=find(model.root,"turret")
+    if len(tp.indices) != 32*6 + 32*3 + 32*3:
+        raise RuntimeError(f"turret pedestal unexpected topology: {len(tp.indices)} indices")
+    if _boundary_loops(tp):
+        raise RuntimeError("turret pedestal is not watertight")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
