@@ -51,7 +51,7 @@ return {
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
 			-- V8: trimmed armature wings and circularized upper turret base
-			epic_model_revision = 8,
+			epic_model_revision = 9,
 		},
 		featuredefs = {
 			dead = {
