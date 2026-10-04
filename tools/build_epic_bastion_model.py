@@ -156,6 +156,30 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+def trim_upper_side_wings(piece, x_limit=7.6, y_threshold=0.25):
+    """Remove the two upper left/right overhangs from a triangle mesh.
+
+    The Chimera turretBaseHeading is one mesh, so its upper side wings are not
+    separately named pieces. Keep the central/lower pedestal and discard only
+    triangles whose centroid lies in the high outer side regions.
+    """
+    if piece.primitive != 0:
+        raise ValueError(f"{piece.name}: expected triangle primitive")
+    kept=[]
+    removed=0
+    for i in range(0,len(piece.indices)-2,3):
+        tri=piece.indices[i:i+3]
+        pts=[piece.verts[j] for j in tri]
+        cx=sum(v[0] for v in pts)/3.0
+        cy=sum(v[1] for v in pts)/3.0
+        if abs(cx) > x_limit and cy > y_threshold:
+            removed += 1
+            continue
+        kept.extend(tri)
+    piece.indices=kept
+    piece._trimmed_wing_triangles=removed
+    return piece
+
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -288,8 +312,14 @@ def rebuild(epic,sol,chim):
         # Keep Chimera's turretBaseHeading geometry untouched. Placement and
         # scale belong to the Epic Bastion assembly, but the donor mesh itself
         # must remain an exact clone with no cuts or reshaping.
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-46.0,49.0),1.72)
-        yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-51.0,49.0),1.72)
+        # Cut only the donor base's two upper side wings; keep the central
+        # triangular pedestal and lower armor intact.
+        trim_upper_side_wings(pedestal, x_limit=7.6 * 1.72, y_threshold=0.25 * 1.72)
+
+        # Move the armor plate 5 units deeper without moving the cannon itself:
+        # compensate the child aiming pivot upward by the same amount.
+        yaw=empty(f"gauss{index}_yaw",(0.0,9.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
@@ -342,7 +372,9 @@ def validate(model):
         "extension_brace_1","extension_brace_2","extension_brace_3",
         "extension_plate_1l","extension_plate_1r",
         "extension_plate_2l","extension_plate_2r",
-        "extension_plate_3l","extension_plate_3r"
+        "extension_plate_3l","extension_plate_3r",
+        "extension_cannon_support_1","extension_cannon_support_2","extension_cannon_support_3",
+        "extension_cannon_plate_1","extension_cannon_plate_2","extension_cannon_plate_3"
     )
     present=[n for n in forbidden if n in names]
     if present:
@@ -357,11 +389,17 @@ def validate(model):
     for n in ("gauss1_yaw","gauss2_yaw","gauss3_yaw"):
         if find(model.root,n).verts:
             raise RuntimeError(f"{n} should be an invisible aiming pivot")
-    # Chimera turretBaseHeading has 306 indices. Preserve that topology
-    # exactly; no wing/clearance cutting is allowed on the donor base.
+    # The Chimera turretBaseHeading donor has 306 indices before trimming.
+    # All three Epic pedestals must have the same reduced topology: enough mesh
+    # remains for the central triangular base, but the upper side wings are gone.
+    pedestal_counts=[]
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
-        if len(find(model.root,n).indices) != 306:
-            raise RuntimeError(f"{n} modified Chimera turret-base topology")
+        count=len(find(model.root,n).indices)
+        pedestal_counts.append(count)
+        if count >= 306 or count < 180:
+            raise RuntimeError(f"{n} unexpected trimmed pedestal topology: {count} indices")
+    if len(set(pedestal_counts)) != 1:
+        raise RuntimeError("trimmed cannon pedestals are not identical")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
