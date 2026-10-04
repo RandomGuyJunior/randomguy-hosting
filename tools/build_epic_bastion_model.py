@@ -222,28 +222,6 @@ def shorten_positive_z(piece, target_max_z):
     piece.verts=verts
     return piece
 
-def trim_upper_side_wings(piece, y_fraction=0.45, max_abs_x=12.0):
-    """Trim the left/right wings from only the upper part of a pedestal.
-
-    The lower triangular/load-bearing portion keeps its full width. Vertices in
-    the upper section are clamped inward so the top no longer overhangs into
-    the cannon's traverse volume.
-    """
-    if not piece.verts:
-        return piece
-    ys=[v[1] for v in piece.verts]
-    min_y=min(ys)
-    max_y=max(ys)
-    threshold=min_y+(max_y-min_y)*y_fraction
-    verts=[]
-    for v in piece.verts:
-        x,y,z,nx,ny,nz,u,w=v
-        if y >= threshold:
-            x=max(-max_abs_x,min(max_abs_x,x))
-        verts.append((x,y,z,nx,ny,nz,u,w))
-    piece.verts=verts
-    return piece
-
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -360,6 +338,8 @@ def rebuild(epic,sol,chim):
         remove_piece(root,f"extension_root_{i}")
 
     chim_turret_base=find(chim.root,"turretBaseHeading")
+    chim_yaw=find(chim.root,"turretPivotBottom")
+    chim_pitch=find(chim.root,"turretPivotPitch")
     chim_house=find(chim.root,"riotcannonHousing")
     chim_barrel=find(chim.root,"riotCannon")
 
@@ -389,30 +369,62 @@ def rebuild(epic,sol,chim):
         mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
         pedestal_scale=1.72
         housing_scale=1.34
+        barrel_scale=1.78
         mount_tilt=105.0
 
+        # Rotate the intact Chimera turret base so its top face lies on the
+        # same 105-degree slope as the Bastion armor plate.
         pedestal=clone_mesh(
             chim_turret_base,
             f"extension_pedestal_{index}",
             (0.0,-5.0,0.0),
             pedestal_scale
         )
-        # Remove the broad left/right wings from the top of the Chimera armor
-        # plate while preserving the lower triangular load-bearing base.
-        trim_upper_side_wings(pedestal,0.45,12.0)
         rotate_mesh_x(pedestal,mount_tilt)
 
-        yaw=empty(f"gauss{index}_yaw",(0.0,5.5,0.5))
-        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,0.0,0.0),housing_scale)
-        barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
-        muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
-        barrel.children=[muzzle]
-        pitch.children=[barrel]
+        def rotated_offset(offset, scale=1.0):
+            x,y,z=offset
+            x*=scale; y*=scale; z*=scale
+            a=math.radians(mount_tilt)
+            c=math.cos(a); sn=math.sin(a)
+            return (x, y*c-z*sn, y*sn+z*c)
 
-        # Rotate the complete visible cannon hierarchy, including child
-        # offsets, so the cannon itself—not only its triangular base—sits at
-        # 105 degrees on the armor plate.
-        rotate_subtree_x(pitch,mount_tilt)
+        # Use the donor model's real attachment points instead of arbitrary
+        # offsets. This keeps the cannon seated exactly on top of the rotated
+        # turret base and preserves the Chimera's intended clearances.
+        yaw_off=rotated_offset(chim_yaw.offset,pedestal_scale)
+        pitch_rel=rotated_offset(chim_pitch.offset,pedestal_scale)
+
+        yaw=empty(
+            f"gauss{index}_yaw",
+            (yaw_off[0], yaw_off[1]-5.0, yaw_off[2])
+        )
+        pitch=empty(f"gauss{index}_pitchpivot",pitch_rel)
+
+        house=clone_mesh(
+            chim_house,
+            f"gauss{index}_pitch",
+            rotated_offset(chim_house.offset,housing_scale),
+            housing_scale
+        )
+        rotate_mesh_x(house,mount_tilt)
+
+        barrel=clone_mesh(
+            chim_barrel,
+            f"gauss{index}_barrel",
+            rotated_offset(chim_barrel.offset,barrel_scale),
+            barrel_scale
+        )
+        rotate_mesh_x(barrel,mount_tilt)
+
+        muzzle=empty(
+            f"gauss{index}_muzzle",
+            rotated_offset((0.0,0.0,29.0),barrel_scale)
+        )
+
+        barrel.children=[muzzle]
+        house.children=[barrel]
+        pitch.children=[house]
         yaw.children=[pitch]
         mount.children=[pedestal,yaw]
 
@@ -440,9 +452,9 @@ def validate(model):
     required=[
         "ringanchor","ring","ring2","ring3","ring4","beam_yaw","beam_pitch","beam_muzzle",
         "extension_root_1","extension_root_2","extension_root_3",
-        "gauss1_yaw","gauss1_pitch","gauss1_barrel","gauss1_muzzle",
-        "gauss2_yaw","gauss2_pitch","gauss2_barrel","gauss2_muzzle",
-        "gauss3_yaw","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
+        "gauss1_yaw","gauss1_pitchpivot","gauss1_pitch","gauss1_barrel","gauss1_muzzle",
+        "gauss2_yaw","gauss2_pitchpivot","gauss2_pitch","gauss2_barrel","gauss2_muzzle",
+        "gauss3_yaw","gauss3_pitchpivot","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
         "extension_mountroot_1","extension_mountroot_2","extension_mountroot_3",
         "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
         "extension_arm_1a","extension_arm_1b",
@@ -496,13 +508,15 @@ def validate(model):
                 f"barrel offset={barrel.offset}"
             )
 
-        # Keep the Chimera base topology, but trim the upper side wings.
+        # Preserve the Chimera base topology; geometry is only rotated.
         if len(pedestal.indices) != 306:
             raise RuntimeError(f"extension_pedestal_{i} modified Chimera turret-base topology")
-        upper=[v for v in pedestal.verts if v[1] >= min(vv[1] for vv in pedestal.verts)
-               +(max(vv[1] for vv in pedestal.verts)-min(vv[1] for vv in pedestal.verts))*0.45]
-        if upper and max(abs(v[0]) for v in upper) > 12.01:
-            raise RuntimeError(f"extension_pedestal_{i} upper wings were not trimmed")
+
+        # The yaw pivot must now sit near the rotated donor attachment point,
+        # not at the old arbitrary +Y offset.
+        yaw=find(model.root,f"gauss{i}_yaw")
+        if yaw.offset[1] > 0.0:
+            raise RuntimeError(f"gauss{i}_yaw is not seated on the 105-degree turret base: {yaw.offset}")
 
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
