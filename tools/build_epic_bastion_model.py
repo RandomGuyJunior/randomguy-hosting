@@ -222,6 +222,28 @@ def shorten_positive_z(piece, target_max_z):
     piece.verts=verts
     return piece
 
+def trim_upper_side_wings(piece, y_fraction=0.45, max_abs_x=12.0):
+    """Trim the left/right wings from only the upper part of a pedestal.
+
+    The lower triangular/load-bearing portion keeps its full width. Vertices in
+    the upper section are clamped inward so the top no longer overhangs into
+    the cannon's traverse volume.
+    """
+    if not piece.verts:
+        return piece
+    ys=[v[1] for v in piece.verts]
+    min_y=min(ys)
+    max_y=max(ys)
+    threshold=min_y+(max_y-min_y)*y_fraction
+    verts=[]
+    for v in piece.verts:
+        x,y,z,nx,ny,nz,u,w=v
+        if y >= threshold:
+            x=max(-max_abs_x,min(max_abs_x,x))
+        verts.append((x,y,z,nx,ny,nz,u,w))
+    piece.verts=verts
+    return piece
+
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -375,6 +397,9 @@ def rebuild(epic,sol,chim):
             (0.0,-5.0,0.0),
             pedestal_scale
         )
+        # Remove the broad left/right wings from the top of the Chimera armor
+        # plate while preserving the lower triangular load-bearing base.
+        trim_upper_side_wings(pedestal,0.45,12.0)
         rotate_mesh_x(pedestal,mount_tilt)
 
         yaw=empty(f"gauss{index}_yaw",(0.0,5.5,0.5))
@@ -471,9 +496,13 @@ def validate(model):
                 f"barrel offset={barrel.offset}"
             )
 
-        # Preserve the exact Chimera base topology.
+        # Keep the Chimera base topology, but trim the upper side wings.
         if len(pedestal.indices) != 306:
             raise RuntimeError(f"extension_pedestal_{i} modified Chimera turret-base topology")
+        upper=[v for v in pedestal.verts if v[1] >= min(vv[1] for vv in pedestal.verts)
+               +(max(vv[1] for vv in pedestal.verts)-min(vv[1] for vv in pedestal.verts))*0.45]
+        if upper and max(abs(v[0]) for v in upper) > 12.01:
+            raise RuntimeError(f"extension_pedestal_{i} upper wings were not trimmed")
 
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
