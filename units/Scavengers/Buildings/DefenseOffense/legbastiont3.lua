@@ -50,8 +50,8 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			-- V10: cannons lowered 40 units, armor pedestal recessed below mount
-			epic_model_revision = 10,
+			-- V11: turrets raised 20 units; original armatures shortened to meet them cleanly
+			epic_model_revision = 11,
 		},
 		featuredefs = {
 			dead = {
