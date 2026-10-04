@@ -63,11 +63,10 @@ local oldHeading
 local targetSwap = false
 
 local rings = {
-	{ piece = ring, axis = y_axis, idle = 165, firing = 260 },
-	{ piece = ring2, axis = x_axis, idle = 125, firing = 195 },
-	-- The two inner rings spin at twice their previous speeds.
-	{ piece = ring3, axis = x_axis, idle = 190, firing = 300 },
-	{ piece = ring4, axis = z_axis, idle = 110, firing = 190 },
+	{ piece = ring, axis = y_axis, idle = 330, firing = 520 },
+	{ piece = ring2, axis = x_axis, idle = 250, firing = 390 },
+	{ piece = ring3, axis = x_axis, idle = 380, firing = 600 },
+	{ piece = ring4, axis = z_axis, idle = 220, firing = 380 },
 }
 
 local function SetVisualParam(name, value)
