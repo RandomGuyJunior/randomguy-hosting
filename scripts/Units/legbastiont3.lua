@@ -49,6 +49,7 @@ local deploying = false
 local firing = false
 local fireSerial = 0
 
+local RING_REST = -10
 local RING_RISE = 38
 local RING_RISE_SPEED = 44 -- twice the previous deployment speed
 
@@ -108,7 +109,7 @@ local function DockRings()
 	SetFiringState(false)
 	StopRings()
 
-	Move(ringAnchor, y_axis, 0, RING_RISE_SPEED)
+	Move(ringAnchor, y_axis, RING_REST, RING_RISE_SPEED)
 	WaitForMove(ringAnchor, y_axis)
 
 	deployed = false
@@ -261,7 +262,7 @@ function script.Create()
 	-- The visible head stays fixed. Only these invisible beam pivots aim.
 	Turn(beamYaw, y_axis, 0)
 	Turn(beamPitch, x_axis, 0)
-	Move(ringAnchor, y_axis, 0)
+	Move(ringAnchor, y_axis, RING_REST)
 	StopRings()
 
 	SetHoverState(false)
