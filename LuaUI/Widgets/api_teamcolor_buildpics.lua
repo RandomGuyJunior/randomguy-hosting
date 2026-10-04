@@ -3,7 +3,7 @@ local widget = widget ---@type Widget
 function widget:GetInfo()
 	return {
 		name = "Team Color BuildPics Cache",
-		desc = "Generates and caches team-coloured variants of BAR's native buildpics",
+		desc = "Caches BAR native buildpics recoloured only inside a 3D unit silhouette",
 		author = "RandomGuyJunior",
 		date = "2026-10-03",
 		license = "GNU GPL, v2 or later",
@@ -18,12 +18,8 @@ local GENERATE_PER_FRAME = 2
 local MAX_CACHE_ENTRIES = 768
 
 local shader
-local maskShader
 local originalDrawUnit
 local wrappedDrawUnit
-
-local navalMasks = {}
-local MASK_SIZE = CACHE_SIZE
 
 local cache = {}
 local cacheMeta = {}
@@ -135,9 +131,22 @@ local FRAG = [[
 	void main() {
 		vec4 texColor = texture2D(tex0, texCoord);
 		vec3 hsv = rgb2hsv(texColor.rgb);
-		float maskValue = 1.0;
+		float maskValue = 0.0;
 		if (useMask > 0.5) {
-			maskValue = texture2D(maskTex, vec2(texCoord.s, 1.0 - texCoord.t)).a;
+			// TeamColorUnitPics is rendered to an FBO, hence the vertical flip.
+			// Sample a tiny neighbourhood as well: BAR's native buildpic and the
+			// model portrait can differ by a pixel or two at silhouette edges.
+			vec2 uv = vec2(texCoord.s, 1.0 - texCoord.t);
+			vec2 px = vec2(1.0 / 256.0);
+			maskValue = texture2D(maskTex, uv).a;
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2( px.x * 2.0, 0.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2(-px.x * 2.0, 0.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2(0.0,  px.y * 2.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2(0.0, -px.y * 2.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2( px.x * 2.0,  px.y * 2.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2(-px.x * 2.0,  px.y * 2.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2( px.x * 2.0, -px.y * 2.0)).a);
+			maskValue = max(maskValue, texture2D(maskTex, uv + vec2(-px.x * 2.0, -px.y * 2.0)).a);
 		}
 
 		bool matchArm = inHueBand(hsv.x, refHueMinArm, refHueMaxArm)
@@ -161,7 +170,7 @@ local FRAG = [[
 		bool matchScav = inHueBand(hsv.x, refHueMinScav, refHueMaxScav)
 			&& hsv.y >= satThresholdScav;
 
-		if (maskValue > 0.08 && (matchArm || matchCor || matchLeg || matchScav)) {
+		if (useMask > 0.5 && maskValue > 0.08 && (matchArm || matchCor || matchLeg || matchScav)) {
 			hsv.x = targetHue;
 			hsv.y = targetSat;
 		}
@@ -170,106 +179,6 @@ local FRAG = [[
 ]]
 
 
-local MASK_VERT = [[
-	#version 150 compatibility
-	void main() {
-		gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-	}
-]]
-
-local MASK_FRAG = [[
-	#version 150 compatibility
-	void main() {
-		gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-	}
-]]
-
-local function isNavalBuildPic(unitDefID)
-	local def = UnitDefs[unitDefID]
-	if not def then return false end
-	return def.floater and (def.minWaterDepth or 0) > 0
-end
-
-local function getUnitDimensions(unitDefID)
-	local dims = Spring.GetUnitDefDimensions(unitDefID)
-	if not dims then return nil end
-	local midx = ((dims.maxx or 0) + (dims.minx or 0)) * 0.5
-	local midy = (math.max(0, dims.maxy or 0) + math.max(0, dims.miny or 0)) * 0.5
-	local midz = ((dims.maxz or 0) + (dims.minz or 0)) * 0.5
-	local ax = math.max(math.abs((dims.maxx or 0) - midx), math.abs((dims.minx or 0) - midx))
-	local ay = math.max(math.abs((dims.maxy or 0) - midy), math.abs((dims.miny or 0) - midy))
-	local az = math.max(math.abs((dims.maxz or 0) - midz), math.abs((dims.minz or 0) - midz))
-	local radius = math.sqrt(ax * ax + ay * ay + az * az)
-	if radius < 1 then radius = 1 end
-	return midx, midy, midz, radius
-end
-
-local function createNavalMask(unitDefID)
-	if navalMasks[unitDefID] then
-		return navalMasks[unitDefID]
-	end
-	if not maskShader or not isNavalBuildPic(unitDefID) then
-		return nil
-	end
-
-	local midx, midy, midz, radius = getUnitDimensions(unitDefID)
-	if not midx then return nil end
-	local half = radius * 1.28
-
-	local tex = gl.CreateTexture(MASK_SIZE, MASK_SIZE, {
-		border = false,
-		min_filter = GL.LINEAR,
-		mag_filter = GL.LINEAR,
-		wrap_s = GL.CLAMP_TO_EDGE,
-		wrap_t = GL.CLAMP_TO_EDGE,
-		fbo = true,
-	})
-	if not tex then return nil end
-
-	local ok = pcall(function()
-		gl.RenderToTexture(tex, function()
-			gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
-			gl.Clear(GL.DEPTH_BUFFER_BIT, 1)
-			gl.DepthTest(true)
-			gl.DepthMask(true)
-			gl.Culling(GL.BACK)
-			gl.Blending(false)
-
-			gl.MatrixMode(GL.PROJECTION)
-			gl.PushMatrix()
-			gl.LoadIdentity()
-			gl.Ortho(-half, half, -half, half, -half * 8, half * 8)
-
-			gl.MatrixMode(GL.MODELVIEW)
-			gl.PushMatrix()
-			gl.LoadIdentity()
-			gl.Rotate(26, 1, 0, 0)
-			gl.Rotate(45, 0, 1, 0)
-			gl.Translate(-midx, -midy, -midz)
-
-			gl.UseShader(maskShader)
-			gl.UnitShape(unitDefID, Spring.GetLocalTeamID(), true, false, true)
-			gl.UseShader(0)
-
-			gl.MatrixMode(GL.PROJECTION)
-			gl.PopMatrix()
-			gl.MatrixMode(GL.MODELVIEW)
-			gl.PopMatrix()
-
-			gl.Culling(false)
-			gl.DepthMask(false)
-			gl.DepthTest(false)
-			gl.Blending(true)
-		end)
-	end)
-
-	if not ok then
-		gl.DeleteTexture(tex)
-		return nil
-	end
-	navalMasks[unitDefID] = tex
-	return tex
-end
 
 local function refreshBuildMenuAfterGeneration()
 	if WG.buildmenu
@@ -548,7 +457,18 @@ local function generate(job)
 	if not tex then return nil end
 
 	local source = "#" .. job.unitDefID
-	local mask = createNavalMask(job.unitDefID)
+	local portraitApi = WG.TeamColorUnitPics
+	if not portraitApi or not portraitApi.GetTexture then
+		return nil
+	end
+
+	-- The portrait is not used as the visible icon. Its transparent background
+	-- gives us a geometry-only alpha mask for the native BAR buildpic.
+	local mask = portraitApi.GetTexture(job.unitDefID, job.teamID)
+	if not mask then
+		return "defer"
+	end
+
 	local ok = pcall(function()
 		gl.RenderToTexture(tex, function()
 			gl.Clear(GL.COLOR_BUFFER_BIT, 0, 0, 0, 0)
@@ -563,19 +483,15 @@ local function generate(job)
 			gl.Blending(false)
 			gl.Color(1, 1, 1, 1)
 			gl.Texture(0, source)
-			if mask then
-				gl.Texture(1, mask)
-			end
+			gl.Texture(1, mask)
 			shader:Activate()
-			shader:SetUniform("useMask", mask and 1.0 or 0.0)
+			shader:SetUniform("useMask", 1.0)
 			shader:SetUniform("targetHue", hue)
 			shader:SetUniform("targetSat", sat)
 			setUnitOverrides(job.unitDefID)
 			gl.BeginEnd(GL.QUADS, drawGenerationQuad)
 			shader:Deactivate()
-			if mask then
-				gl.Texture(1, false)
-			end
+			gl.Texture(1, false)
 			gl.Texture(0, false)
 			gl.Blending(true)
 
@@ -629,7 +545,12 @@ local function processQueue()
 		end
 		if not cache[job.key] and not failed[job.key] then
 			local tex = generate(job)
-			if tex then
+			if tex == "defer" then
+				-- TeamColorUnitPics generates at most a few portraits per frame.
+				-- Put this buildpic back behind the other work and try again once
+				-- its model-only mask is available.
+				enqueue(job)
+			elseif tex then
 				storeCached(job, tex)
 				generatedAny = true
 			else
@@ -688,14 +609,6 @@ function widget:Initialize()
 		return
 	end
 
-	maskShader = gl.CreateShader({
-		vertex = MASK_VERT,
-		fragment = MASK_FRAG,
-	})
-	if not maskShader or maskShader == 0 then
-		Spring.Echo("[Team Color BuildPics] naval mask shader failed:", tostring(gl.GetShaderLog()))
-		maskShader = nil
-	end
 
 	originalDrawUnit = WG.FlowUI.Draw.Unit
 	wrappedDrawUnit = function(
@@ -779,11 +692,6 @@ function widget:Shutdown()
 	end
 	WG.TeamColorBuildPics = nil
 
-	for unitDefID, tex in pairs(navalMasks) do
-		gl.DeleteTexture(tex)
-		navalMasks[unitDefID] = nil
-	end
-
 	for key, tex in pairs(cache) do
 		gl.DeleteTexture(tex)
 		cache[key] = nil
@@ -802,9 +710,5 @@ function widget:Shutdown()
 	if shader then
 		shader:Finalize()
 		shader = nil
-	end
-	if maskShader then
-		gl.DeleteShader(maskShader)
-		maskShader = nil
 	end
 end
