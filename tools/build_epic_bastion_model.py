@@ -156,6 +156,23 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+def rotate_mesh_x(piece, degrees):
+    """Bake a local X-axis rotation into mesh vertices and normals."""
+    a=math.radians(degrees)
+    c=math.cos(a)
+    sn=math.sin(a)
+    verts=[]
+    for v in piece.verts:
+        x,y,z,nx,ny,nz,u,w=v
+        # Positive X rotation tilts the upper (+Y) part toward +Z (forward).
+        ry=y*c-z*sn
+        rz=y*sn+z*c
+        rny=ny*c-nz*sn
+        rnz=ny*sn+nz*c
+        verts.append((x,ry,rz,nx,rny,rnz,u,w))
+    piece.verts=verts
+    return piece
+
 def mesh_axis_bounds(piece, axis):
     """Return min/max local vertex position for x=0, y=1, or z=2."""
     if not piece.verts:
@@ -339,16 +356,20 @@ def rebuild(epic,sol,chim):
             (0.0,pedestal_y,0.0),
             pedestal_scale
         )
+        # The armor plate below this mount slopes forward. Keep the cannon
+        # aiming axes upright, but lean the visible pedestal itself so its
+        # upper face follows that plate instead of cutting vertically through
+        # it. Positive X tilt moves the upper part toward +Z (forward).
+        pedestal_forward_tilt=16.0
+        rotate_mesh_x(pedestal,pedestal_forward_tilt)
 
-        # Seat the upright cannon housing exactly on top of Chimera's diagonal
-        # armor plate. The visible plate keeps its own sloped geometry; only
-        # the invisible yaw pivot is raised enough that the housing's lowest
-        # vertex clears the plate's highest vertex by a tiny gap.
-        _, pedestal_top=mesh_axis_bounds(chim_turret_base,1)
+        # Seat the upright cannon housing just above the now-tilted pedestal.
+        # Use the transformed pedestal bounds, not the unrotated donor bounds.
+        pedestal_top=max(v[1] for v in pedestal.verts)
         housing_bottom,_=mesh_axis_bounds(chim_house,1)
         seated_y=(
             pedestal_y
-            + pedestal_top*pedestal_scale
+            + pedestal_top
             + seat_clearance
             - pitch_y
             - housing_bottom*housing_scale
@@ -437,6 +458,16 @@ def validate(model):
         gap=housing_bottom-pedestal_top
         if gap < 0.35 or gap > 0.55:
             raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
+
+        # Confirm the baked pedestal tilt really leans its upper geometry
+        # forward (+Z) rather than remaining upright/backward.
+        upper=[v for v in pedestal.verts if v[1] >= max(x[1] for x in pedestal.verts)-1.0]
+        lower=[v for v in pedestal.verts if v[1] <= min(x[1] for x in pedestal.verts)+1.0]
+        if upper and lower:
+            upper_z=sum(v[2] for v in upper)/len(upper)
+            lower_z=sum(v[2] for v in lower)/len(lower)
+            if upper_z <= lower_z:
+                raise RuntimeError(f"extension_pedestal_{i} does not lean forward")
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
