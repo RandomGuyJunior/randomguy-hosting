@@ -885,6 +885,10 @@ local function GetDistortionVBO(vboName)
 	return distortionVBOMap[vboName]
 end
 
+local function GetUnitDistortionVBO(vboName)
+	return unitDistortionVBOMap[vboName]
+end
+
 function widget:VisibleUnitAdded(unitID, unitDefID, unitTeam)
 	visibleUnits[unitID] = unitDefID
 	AddStaticDistortionsForUnit(unitID, unitDefID, false, "VisibleUnitAdded")
@@ -1706,6 +1710,7 @@ function widget:Initialize()
 	WG.distortionsgl4.AddDistortion = AddDistortion
 	WG.distortionsgl4.RemoveDistortion = RemoveDistortion
 	WG.distortionsgl4.GetDistortionVBO = GetDistortionVBO
+	WG.distortionsgl4.GetUnitDistortionVBO = GetUnitDistortionVBO
 
 	WG.distortionsgl4.IntensityMultiplier = function(value)
 		intensityMultiplier = value
