@@ -340,7 +340,7 @@ def rebuild(epic,sol,chim):
         # The visible triangle is the actual Chimera turretBaseHeading. Keep it
         # upright, then seat the cannon directly onto its upper surface.
         # Pull the whole mount inward so the triangle sits closer to the Bastion.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,39.0))
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,36.0))
         pedestal_scale=1.72
         housing_scale=1.34
         pedestal_y=-5.0
@@ -375,7 +375,7 @@ def rebuild(epic,sol,chim):
             - pitch_y
             - housing_bottom*housing_scale
         )
-        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,contact_z))
+        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,contact_z + 3.0))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,pitch_y,0.0),housing_scale)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
@@ -447,7 +447,7 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-66.0,39.0):
+        if mount.offset != (0.0,-66.0,36.0):
             raise RuntimeError(f"extension_mountroot_{i} is not pulled inward to the Chimera base position")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
@@ -463,10 +463,10 @@ def validate(model):
 
         contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.25]
         expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
-        if abs(yaw.offset[2]-expected_z) > 0.01:
+        if abs(yaw.offset[2]-(expected_z+3.0)) > 0.01:
             raise RuntimeError(
-                f"gauss{i} is not centered over pedestal contact region: "
-                f"yawZ={yaw.offset[2]:.3f} expected={expected_z:.3f}"
+                f"gauss{i} rear housing is not seated over the Chimera base: "
+                f"yawZ={yaw.offset[2]:.3f} expected={expected_z+3.0:.3f}"
             )
         if abs(pitch.offset[2]) > 0.01:
             raise RuntimeError(f"gauss{i} housing has an extra Z offset")
