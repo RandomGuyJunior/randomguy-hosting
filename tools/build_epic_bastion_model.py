@@ -156,38 +156,6 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
-def cut_turret_clearance(piece, half_x=9.0, y_min=-2.2, z_min=-15.5, z_max=16.0):
-    """Remove pedestal faces that occupy the cannon's central traverse volume.
-
-    The pedestal's outer armor remains untouched; only triangles whose centroid
-    sits inside the high central cavity beneath the Chimera cannon are removed.
-    """
-    if piece.primitive != 0 or not piece.indices:
-        return piece
-
-    kept=[]
-    removed=0
-    for i in range(0,len(piece.indices)-2,3):
-        tri=piece.indices[i:i+3]
-        pts=[piece.verts[idx] for idx in tri]
-        cx=sum(v[0] for v in pts)/3.0
-        cy=sum(v[1] for v in pts)/3.0
-        cz=sum(v[2] for v in pts)/3.0
-
-        in_clearance=(
-            abs(cx) < half_x
-            and cy > y_min
-            and z_min < cz < z_max
-        )
-        if in_clearance:
-            removed += 1
-        else:
-            kept.extend(tri)
-
-    piece.indices=kept
-    piece._clearance_removed=removed
-    return piece
-
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -317,10 +285,10 @@ def rebuild(epic,sol,chim):
         # Remove the stretched brace/plate connectors completely. The cannon
         # pedestal now sits deeper in the model instead of being linked to the
         # radial holders by long dark geometry.
+        # Keep Chimera's turretBaseHeading geometry untouched. Placement and
+        # scale belong to the Epic Bastion assembly, but the donor mesh itself
+        # must remain an exact clone with no cuts or reshaping.
         pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-46.0,49.0),1.72)
-        # Cut an actual clearance cavity into the upper center of the armor
-        # plate so the Chimera cannon can traverse without intersecting it.
-        cut_turret_clearance(pedestal)
         yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
@@ -389,9 +357,11 @@ def validate(model):
     for n in ("gauss1_yaw","gauss2_yaw","gauss3_yaw"):
         if find(model.root,n).verts:
             raise RuntimeError(f"{n} should be an invisible aiming pivot")
+    # Chimera turretBaseHeading has 306 indices. Preserve that topology
+    # exactly; no wing/clearance cutting is allowed on the donor base.
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
-        if len(find(model.root,n).indices) >= 306:
-            raise RuntimeError(f"{n} clearance cut did not remove any pedestal faces")
+        if len(find(model.root,n).indices) != 306:
+            raise RuntimeError(f"{n} modified Chimera turret-base topology")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
