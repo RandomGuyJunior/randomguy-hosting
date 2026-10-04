@@ -61,7 +61,7 @@ end
 local function PointHeatParams(x, y, z, firing)
 	local cfg = firing and distortionConfig.firing.point or distortionConfig.passive.point
 	local p = EmptyParams()
-	p[1], p[2], p[3] = x, y + (firing and 12 or 22), z
+	p[1], p[2], p[3] = x, y, z
 	p[4] = cfg.radius
 	p[10] = cfg.effectStrength
 	p[11] = cfg.startRadius
@@ -229,9 +229,11 @@ function widget:Update(dt)
 
 	for unitID, state in pairs(tracked) do
 		local firing = spGetUnitRulesParam(unitID, "epic_bastion_firing") or 0
-		-- Epic Bastion always carries a subtle passive distortion; firing
-		-- upgrades it to the stronger ring + beam profile from the config.
-		local desired = (firing > 0) and 2 or 1
+		local deployed = spGetUnitRulesParam(unitID, "epic_bastion_hover") or 0
+		-- No distortion while the rings are docked/resting. Deployment starts
+		-- the light ring-centered point distortion; firing upgrades that same
+		-- point and adds the moving beam distortion.
+		local desired = (firing > 0) and 2 or ((deployed > 0) and 1 or 0)
 
 		if desired ~= state.mode or (desired > 0 and not state.pointAdded) then
 			ApplyMode(unitID, state, desired)
