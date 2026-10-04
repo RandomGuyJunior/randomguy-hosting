@@ -180,6 +180,73 @@ def trim_upper_side_wings(piece, x_limit=7.6, y_threshold=0.25):
     piece._trimmed_wing_triangles=removed
     return piece
 
+
+def trim_armature_wings(piece, x_limit=10.5, y_threshold=2.0):
+    """Cut only the upper lateral wings from the Bastion armature mesh."""
+    if piece.primitive != 0:
+        raise ValueError(f"{piece.name}: expected triangle primitive")
+    kept=[]
+    removed=0
+    for i in range(0,len(piece.indices)-2,3):
+        tri=piece.indices[i:i+3]
+        pts=[piece.verts[j] for j in tri]
+        cx=sum(v[0] for v in pts)/3.0
+        cy=sum(v[1] for v in pts)/3.0
+        # The unwanted wings are the wide, high side lobes. Preserve the
+        # central spine and all lower structural geometry.
+        if abs(cx) > x_limit and cy > y_threshold:
+            removed += 1
+            continue
+        kept.extend(tri)
+    piece.indices=kept
+    piece._trimmed_armature_wing_triangles=removed
+    return piece
+
+def circularize_turret_top(piece, x_limit=10.5, y_threshold=-2.5, cap_y=5.2, cap_radius=11.5, segments=24):
+    """Remove the turret's two raised side prongs and close it with a round cap."""
+    if piece.primitive != 0:
+        raise ValueError(f"{piece.name}: expected triangle primitive")
+
+    kept=[]
+    removed=0
+    # Keep central turret body; discard only high outer prong triangles.
+    for i in range(0,len(piece.indices)-2,3):
+        tri=piece.indices[i:i+3]
+        pts=[piece.verts[j] for j in tri]
+        cx=sum(v[0] for v in pts)/3.0
+        cy=sum(v[1] for v in pts)/3.0
+        if abs(cx) > x_limit and cy > y_threshold:
+            removed += 1
+            continue
+        kept.extend(tri)
+    piece.indices=kept
+
+    # Use a nearby existing texture coordinate so the new cap inherits a sane
+    # material sample instead of introducing a new texture dependency.
+    if piece.verts:
+        ref=min(piece.verts, key=lambda v: abs(v[0]) + abs(v[2]) + abs(v[1]-cap_y))
+        u0,v0=ref[6],ref[7]
+    else:
+        u0,v0=0.5,0.5
+
+    center_idx=len(piece.verts)
+    piece.verts.append((0.0,cap_y,0.0,0.0,1.0,0.0,u0,v0))
+    rim=[]
+    for i in range(segments):
+        a=(math.pi*2.0*i)/segments
+        x=math.cos(a)*cap_radius
+        z=math.sin(a)*cap_radius
+        rim.append(len(piece.verts))
+        piece.verts.append((x,cap_y,z,0.0,1.0,0.0,u0,v0))
+
+    for i in range(segments):
+        j=(i+1)%segments
+        piece.indices.extend([center_idx,rim[j],rim[i]])
+
+    piece._trimmed_turret_prong_triangles=removed
+    piece._added_round_cap_triangles=segments
+    return piece
+
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -204,6 +271,13 @@ def ensure_donors(tmp):
 def rebuild(epic,sol,chim):
     root=epic.root
     turret=find(root,"turret")
+
+    # User-identified source geometry cleanup: remove the upper lateral wings
+    # from all three armatures, and turn the main turret top into a clean round
+    # base by cutting its raised side prongs and capping the opening.
+    for arm_name in ("armature1","armature2","armature3"):
+        trim_armature_wings(find(root,arm_name))
+    circularize_turret_top(turret)
 
     def has(name):
         try:
@@ -400,6 +474,16 @@ def validate(model):
             raise RuntimeError(f"{n} unexpected trimmed pedestal topology: {count} indices")
     if len(set(pedestal_counts)) != 1:
         raise RuntimeError("trimmed cannon pedestals are not identical")
+
+    for n in ("armature1","armature2","armature3"):
+        p=find(model.root,n)
+        if not getattr(p,"_trimmed_armature_wing_triangles",0):
+            raise RuntimeError(f"{n} wing trim removed no triangles")
+    t=find(model.root,"turret")
+    if not getattr(t,"_trimmed_turret_prong_triangles",0):
+        raise RuntimeError("turret prong trim removed no triangles")
+    if getattr(t,"_added_round_cap_triangles",0) < 16:
+        raise RuntimeError("turret circular cap missing")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
