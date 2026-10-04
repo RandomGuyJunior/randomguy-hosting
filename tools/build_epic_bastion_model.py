@@ -156,6 +156,17 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
+def trim_pedestal_top_wings(piece, y_threshold=0.6, x_limit=7.2):
+    """Narrow only the high left/right shoulders of the Chimera base."""
+    verts=[]
+    for v in piece.verts:
+        x,y,z,nx,ny,nz,u,w=v
+        if y > y_threshold:
+            x=max(-x_limit,min(x_limit,x))
+        verts.append((x,y,z,nx,ny,nz,u,w))
+    piece.verts=verts
+    return piece
+
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -286,6 +297,9 @@ def rebuild(epic,sol,chim):
         # pedestal now sits deeper in the model instead of being linked to the
         # radial holders by long dark geometry.
         pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-46.0,49.0),1.72)
+        # Remove the donor base's broad upper left/right shoulders while
+        # preserving the central triangular pedestal under the cannon.
+        trim_pedestal_top_wings(pedestal, y_threshold=1.0, x_limit=11.8)
         yaw=empty(f"gauss{index}_yaw",(0.0,4.2,0.5))
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
