@@ -142,39 +142,43 @@ local FRAG = [[
 			float expandedMask = coreMask;
 			vec2 px = vec2(1.0 / 256.0);
 
-			// The 3D mask and BAR's finished buildpic do not share exactly the
-			// same framing. Expand the mask enough to recover paint that sits
-			// just outside the model render without opening the whole sea.
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 4.0, 0.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-4.0, 0.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0,  4.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -4.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 8.0,  8.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-8.0,  8.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 8.0, -8.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-8.0, -8.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(16.0, 0.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-16.0, 0.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, 16.0) * px).a);
-			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -16.0) * px).a);
+			// The model mask and BAR's finished buildpic framing differ. Use a
+			// deliberately generous dilation, then let the backdrop test below
+			// remove sea/sky again. This recovers much more real hull paint.
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 6.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-6.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0,  6.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -6.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(12.0, 12.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-12.0, 12.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(12.0, -12.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-12.0, -12.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(24.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-24.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, 24.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -24.0) * px).a);
 
-			// BAR's sea backdrop reaches the image edges. Use edge pixels as
-			// background references: expanded-mask pixels that still look like
-			// the fixed backdrop stay untouched, while real unit paint can pass.
-			vec3 bg0 = texture2D(tex0, vec2(0.025, 0.18)).rgb;
-			vec3 bg1 = texture2D(tex0, vec2(0.025, 0.50)).rgb;
-			vec3 bg2 = texture2D(tex0, vec2(0.025, 0.82)).rgb;
-			vec3 bg3 = texture2D(tex0, vec2(0.975, 0.18)).rgb;
-			vec3 bg4 = texture2D(tex0, vec2(0.975, 0.50)).rgb;
-			vec3 bg5 = texture2D(tex0, vec2(0.975, 0.82)).rgb;
-			float bgDist = distance(texColor.rgb, bg0);
-			bgDist = min(bgDist, distance(texColor.rgb, bg1));
-			bgDist = min(bgDist, distance(texColor.rgb, bg2));
-			bgDist = min(bgDist, distance(texColor.rgb, bg3));
-			bgDist = min(bgDist, distance(texColor.rgb, bg4));
-			bgDist = min(bgDist, distance(texColor.rgb, bg5));
+			// The BAR sea backdrop is consistent across naval buildpics, but its
+			// colour changes vertically. Compare against the *same scanline* at
+			// both image edges instead of a few fixed colour samples. This lets
+			// us expand the model mask much further while still rejecting the sea.
+			vec3 bgL  = texture2D(tex0, vec2(0.018, texCoord.t)).rgb;
+			vec3 bgR  = texture2D(tex0, vec2(0.982, texCoord.t)).rgb;
+			vec3 bgLu = texture2D(tex0, vec2(0.018, clamp(texCoord.t + 0.035, 0.0, 1.0))).rgb;
+			vec3 bgRu = texture2D(tex0, vec2(0.982, clamp(texCoord.t + 0.035, 0.0, 1.0))).rgb;
+			vec3 bgLd = texture2D(tex0, vec2(0.018, clamp(texCoord.t - 0.035, 0.0, 1.0))).rgb;
+			vec3 bgRd = texture2D(tex0, vec2(0.982, clamp(texCoord.t - 0.035, 0.0, 1.0))).rgb;
 
-			bool looksLikeBackdrop = bgDist < 0.105;
+			float bgDist = distance(texColor.rgb, bgL);
+			bgDist = min(bgDist, distance(texColor.rgb, bgR));
+			bgDist = min(bgDist, distance(texColor.rgb, bgLu));
+			bgDist = min(bgDist, distance(texColor.rgb, bgRu));
+			bgDist = min(bgDist, distance(texColor.rgb, bgLd));
+			bgDist = min(bgDist, distance(texColor.rgb, bgRd));
+
+			// Smaller threshold than before: only pixels genuinely close to the
+			// known backdrop are rejected. More of the unit's real paint passes.
+			bool looksLikeBackdrop = bgDist < 0.082;
 			maskValue = (coreMask > 0.08 || (expandedMask > 0.08 && !looksLikeBackdrop)) ? 1.0 : 0.0;
 		}
 
