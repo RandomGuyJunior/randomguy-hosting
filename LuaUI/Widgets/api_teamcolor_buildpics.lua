@@ -39,7 +39,7 @@ local lastLocalColorKey
 
 local CONFIG_KEY = "RandomGuyTeamColorBuildPics"
 local OPTION_ID = "randomguy_teamcolor_buildpics"
-local enabled = Spring.GetConfigInt(CONFIG_KEY, 1) ~= 0
+local enabled = Spring.GetConfigInt(CONFIG_KEY, 0) ~= 0
 local optionRegistered = false
 
 local HUE_MIN_ARM, HUE_MAX_ARM = 0.50, 0.66
