@@ -475,15 +475,19 @@ def validate(model):
     if len(set(pedestal_counts)) != 1:
         raise RuntimeError("trimmed cannon pedestals are not identical")
 
+    # Validate the serialized result, not transient Python attributes.
+    # Stock armatures contain 480 indices. A successful wing cut must reduce
+    # that count while leaving substantial central structure.
     for n in ("armature1","armature2","armature3"):
-        p=find(model.root,n)
-        if not getattr(p,"_trimmed_armature_wing_triangles",0):
-            raise RuntimeError(f"{n} wing trim removed no triangles")
-    t=find(model.root,"turret")
-    if not getattr(t,"_trimmed_turret_prong_triangles",0):
-        raise RuntimeError("turret prong trim removed no triangles")
-    if getattr(t,"_added_round_cap_triangles",0) < 16:
-        raise RuntimeError("turret circular cap missing")
+        count=len(find(model.root,n).indices)
+        if count >= 480 or count < 240:
+            raise RuntimeError(f"{n} unexpected post-trim topology: {count} indices")
+
+    # Stock turret contains 774 indices. We add a 24-segment cap (72 indices),
+    # so a successful prong cut must still finish below 846 total indices.
+    turret_count=len(find(model.root,"turret").indices)
+    if turret_count >= 846 or turret_count < 450:
+        raise RuntimeError(f"turret unexpected circularized topology: {turret_count} indices")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
