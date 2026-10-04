@@ -50,8 +50,8 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			-- V11: turrets raised 20 units; original armatures shortened to meet them cleanly
-			epic_model_revision = 11,
+			-- V12: cannon housings seated cleanly on the diagonal Chimera armor plates
+			epic_model_revision = 12,
 		},
 		featuredefs = {
 			dead = {
