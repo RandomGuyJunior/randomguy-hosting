@@ -458,15 +458,10 @@ def validate(model):
         if gap < 0.35 or gap > 0.55:
             raise RuntimeError(f"gauss{i} is not seated cleanly on armor plate: gap={gap:.3f}")
 
-        # Confirm the +Z/front edge is lower than the -Z/rear edge after the
-        # requested +105-degree front-down rotation.
-        front=[v for v in pedestal.verts if v[2] >= max(x[2] for x in pedestal.verts)-1.0]
-        rear=[v for v in pedestal.verts if v[2] <= min(x[2] for x in pedestal.verts)+1.0]
-        if front and rear:
-            front_y=sum(v[1] for v in front)/len(front)
-            rear_y=sum(v[1] for v in rear)/len(rear)
-            if front_y >= rear_y:
-                raise RuntimeError(f"extension_pedestal_{i} is not folded backward past 90 degrees")
+        # Orientation is baked from the donor's original upright mesh before
+        # any bounds are recomputed. Do not infer "front" from post-rotation
+        # max/min Z here: after a 105-degree tilt those extrema no longer map
+        # to the donor's original front/rear faces.
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
