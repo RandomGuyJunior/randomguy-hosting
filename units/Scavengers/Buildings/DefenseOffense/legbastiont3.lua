@@ -50,8 +50,8 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			-- V13: Chimera bases moved inward; cannon rear seated over the base
-			epic_model_revision = 10,
+			-- V14: entire Chimera cannon assembly baked to the 105-degree armor-plate mount
+			epic_model_revision = 11,
 		},
 		featuredefs = {
 			dead = {
