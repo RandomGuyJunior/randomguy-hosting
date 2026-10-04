@@ -51,7 +51,7 @@ return {
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
 			-- V12: cannon housings seated cleanly on the diagonal Chimera armor plates
-			epic_model_revision = 12,
+			epic_model_revision = 13,
 		},
 		featuredefs = {
 			dead = {
