@@ -156,79 +156,6 @@ def transform_mesh(piece, sx=1.0, sy=1.0, sz=1.0, dx=0.0, dy=0.0, dz=0.0):
     piece.verts=verts
     return piece
 
-
-def _interp_vertex(a,b,t):
-    vals=[a[i] + (b[i]-a[i])*t for i in range(8)]
-    nx,ny,nz=vals[3],vals[4],vals[5]
-    mag=math.sqrt(nx*nx+ny*ny+nz*nz)
-    if mag > 1e-9:
-        vals[3],vals[4],vals[5]=nx/mag,ny/mag,nz/mag
-    return tuple(vals)
-
-def cut_armature_at_bend(piece, z_cut=12.0):
-    """Cleanly clip the outer bent armature end and close it with a rectangle."""
-    if piece.primitive != 0:
-        raise ValueError(f"{piece.name}: expected triangle primitive")
-
-    new_verts=[]
-    new_indices=[]
-    cut_points=[]
-
-    def add_vertex(v):
-        idx=len(new_verts)
-        new_verts.append(v)
-        return idx
-
-    def inside(v):
-        return v[2] <= z_cut + 1e-6
-
-    for i in range(0,len(piece.indices)-2,3):
-        poly=[piece.verts[piece.indices[i+j]] for j in range(3)]
-        out=[]
-        for j,a in enumerate(poly):
-            b=poly[(j+1)%len(poly)]
-            a_in=inside(a)
-            b_in=inside(b)
-            if a_in:
-                out.append(a)
-            if a_in != b_in:
-                dz=b[2]-a[2]
-                t=0.0 if abs(dz)<1e-9 else (z_cut-a[2])/dz
-                v=_interp_vertex(a,b,t)
-                out.append(v)
-                cut_points.append(v)
-
-        if len(out) < 3:
-            continue
-        base=add_vertex(out[0])
-        for j in range(1,len(out)-1):
-            i1=add_vertex(out[j])
-            i2=add_vertex(out[j+1])
-            new_indices.extend([base,i1,i2])
-
-    if len(cut_points) < 2:
-        raise RuntimeError(f"{piece.name}: cut plane did not intersect mesh")
-
-    minx=min(v[0] for v in cut_points)
-    maxx=max(v[0] for v in cut_points)
-    miny=min(v[1] for v in cut_points)
-    maxy=max(v[1] for v in cut_points)
-    u=sum(v[6] for v in cut_points)/len(cut_points)
-    w=sum(v[7] for v in cut_points)/len(cut_points)
-
-    cap=[
-        (minx,miny,z_cut,0.0,0.0,1.0,u,w),
-        (maxx,miny,z_cut,0.0,0.0,1.0,u,w),
-        (maxx,maxy,z_cut,0.0,0.0,1.0,u,w),
-        (minx,maxy,z_cut,0.0,0.0,1.0,u,w),
-    ]
-    c0=add_vertex(cap[0]); c1=add_vertex(cap[1]); c2=add_vertex(cap[2]); c3=add_vertex(cap[3])
-    new_indices.extend([c0,c1,c2,c0,c2,c3])
-
-    piece.verts=new_verts
-    piece.indices=new_indices
-    return piece
-
 def remove_piece(root, name):
     try:
         target=find(root,name)
@@ -253,15 +180,6 @@ def ensure_donors(tmp):
 def rebuild(epic,sol,chim):
     root=epic.root
     turret=find(root,"turret")
-
-    # Preserve the original turret design; enlarge only its visible mesh so the
-    # built-in upper arms open farther around the unchanged ring stack.
-    transform_mesh(turret, sx=1.18, sy=1.18, sz=1.18)
-
-    # Cleanly remove only the bent outer tips of the three original armatures,
-    # then close each cut with one flat rectangular end plate.
-    for arm_name in ("armature1","armature2","armature3"):
-        cut_armature_at_bend(find(root,arm_name), z_cut=12.0)
 
     def has(name):
         try:
@@ -444,14 +362,6 @@ def validate(model):
     for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
         if len(find(model.root,n).indices) != 306:
             raise RuntimeError(f"{n} modified Chimera turret-base topology")
-
-    for n in ("armature1","armature2","armature3"):
-        p=find(model.root,n)
-        if any(v[2] > 12.001 for v in p.verts):
-            raise RuntimeError(f"{n} still extends beyond clean cut")
-        capverts=[v for v in p.verts if abs(v[2]-12.0) < 0.001]
-        if len(capverts) < 4:
-            raise RuntimeError(f"{n} rectangular cut cap missing")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
