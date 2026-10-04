@@ -221,9 +221,9 @@ def rebuild(epic,sol,chim):
         r.offset=(0.0,0.0,0.0)
     ring_anchor.children=rings+anchor_nonrings
 
-    # V6: keep the three radial holder assemblies, but remove the two
-    # original high Bastion side arms that curve through the ring stack.
-    # The lower arm mesh is only a donor for the three radial holders.
+    # V4: fixed visible head with three identical radial turret extensions.
+    # Capture the original lower aiming arm as a donor, then remove all of the
+    # old directional head arms (including the two diagonals beside the rings).
     try:
         lower_arm_donor=find(root,"bottomAimingArm")
     except KeyError:
@@ -232,8 +232,7 @@ def rebuild(epic,sol,chim):
     for old_name in (
         "support_plate_1","support_plate_2","support_plate_3",
         "gaussL_yaw","gaussR_yaw","gaussdeck",
-        "topArmsPivot","aiming_arm",
-        "leftAimingArm","rightAimingArm"
+        "topArmsPivot","aiming_arm"
     ):
         remove_piece(root,old_name)
 
@@ -263,8 +262,8 @@ def rebuild(epic,sol,chim):
     sol_house=find(sol.root,"lHeatrayHousing")
 
     if lower_arm_donor is None:
-        # Reconstruct the holder donor from stock Bastion when rebuilding an
-        # already-converted model where the original lower arm is unavailable.
+        # On an already-converted model, reconstruct the donor from the stock
+        # Bastion source downloaded alongside the other donor models.
         stock_path=os.path.join("/tmp/epic-bastion-donors","legbastion_stock.s3o")
         if not os.path.exists(stock_path):
             download("https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/objects3d/Units/legbastion.s3o",stock_path)
@@ -274,22 +273,21 @@ def rebuild(epic,sol,chim):
     def make_extension(index):
         root_piece=empty(f"extension_root_{index}",(0.0,-10.0,0.0))
 
-        # Restore the three beautiful radial holders: each direction is a
-        # mirrored pair built from the stock Bastion lower-arm geometry.
+        # Two lower arms directly under the ring, forming one paired radial
+        # support that extends toward this turret's firing direction.
         arm_a=clone_mesh(lower_arm_donor,f"extension_arm_{index}a",(-7.0,-5.0,7.0),0.92)
         arm_b=clone_mesh(lower_arm_donor,f"extension_arm_{index}b",(7.0,-5.0,7.0),0.92,mirror_x=True)
 
-        # Main radial spine underneath the holder.
+        # Diagonal attachment / structural spine under the turret base.
         brace=clone_mesh(sol_strut,f"extension_brace_{index}",(0.0,-6.0,27.0),1.05)
 
-        # Restore the cleaner V4 side plates; these belong to the extension,
-        # not the turret body, so they reinforce without cutting through it.
+        # Sol Invictus-like armor is kept low and to the sides so it frames,
+        # rather than intersects, the cannon's traverse volume.
         plate_l=clone_mesh(sol_strut,f"extension_plate_{index}l",(-12.0,-8.0,34.0),0.78)
         plate_r=clone_mesh(sol_strut,f"extension_plate_{index}r",(12.0,-8.0,34.0),0.78,mirror_x=True)
 
-        # Lower the entire Chimera cannon mount by another 40 model units from
-        # the current V5 position (-12 -> -52).
-        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-52.0,49.0),1.72)
+        # Proper turret pedestal at the end of the radial extension.
+        pedestal=clone_mesh(chim_turret_base,f"extension_pedestal_{index}",(0.0,-1.0,49.0),1.72)
         yaw=clone_mesh(chim_yaw_base,f"gauss{index}_yaw",(0.0,4.2,0.5),1.58)
         pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,4.0,1.0),1.34)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
@@ -299,18 +297,7 @@ def rebuild(epic,sol,chim):
         yaw.children=[pitch]
         pedestal.children=[yaw]
 
-        # A dedicated reinforced support reaches down from the radial spine to
-        # the lowered pedestal. It stays under the turret's traverse volume
-        # and terminates at a load-bearing plate immediately below the mount.
-        support_spine=clone_mesh(sol_strut,f"extension_cannon_support_{index}",(0.0,-43.0,43.0),1.15)
-        # Place the plate immediately below the pedestal's lower surface:
-        # close enough to read as load-bearing, but not intersecting the turret.
-        support_plate=clone_mesh(chim_turret_base,f"extension_cannon_plate_{index}",(0.0,-60.5,49.0),1.35)
-
-        root_piece.children=[
-            arm_a,arm_b,brace,plate_l,plate_r,
-            support_spine,support_plate,pedestal
-        ]
+        root_piece.children=[arm_a,arm_b,brace,plate_l,plate_r,pedestal]
         return root_piece
 
     # All three start geometrically forward; the unit script rotates the
@@ -320,10 +307,8 @@ def rebuild(epic,sol,chim):
 
     # Marker for validation/versioning.
     remove_piece(root,"body_revamp_v3")
-    remove_piece(root,"body_revamp_v4")
-    remove_piece(root,"body_revamp_v5")
-    if not has("body_revamp_v6"):
-        root.children.append(empty("body_revamp_v6",(0.0,0.0,0.0)))
+    if not has("body_revamp_v4"):
+        root.children.append(empty("body_revamp_v4",(0.0,0.0,0.0)))
 
     epic.radius=max(epic.radius,182.0)
     epic.height=max(epic.height,236.0)
@@ -339,23 +324,11 @@ def validate(model):
         "gauss3_yaw","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
         "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
         "extension_brace_1","extension_brace_2","extension_brace_3",
-        "extension_arm_1a","extension_arm_1b",
-        "extension_arm_2a","extension_arm_2b",
-        "extension_arm_3a","extension_arm_3b",
-        "extension_cannon_support_1","extension_cannon_plate_1",
-        "extension_cannon_support_2","extension_cannon_plate_2",
-        "extension_cannon_support_3","extension_cannon_plate_3",
-        "body_revamp_v6",
+        "body_revamp_v4",
     ]
     names={p.name for p in walk(model.root)}
     missing=[n for n in required if n not in names]
     if missing: raise RuntimeError("missing pieces: "+", ".join(missing))
-    for clipped_name in ("leftAimingArm","rightAimingArm"):
-        if clipped_name in names:
-            raise RuntimeError(f"high clipping Bastion arm remains: {clipped_name}")
-    obsolete_mounts=[n for n in names if n.startswith("extension_mount_")]
-    if obsolete_mounts:
-        raise RuntimeError("obsolete V5 turret mount pieces remain: "+", ".join(sorted(obsolete_mounts)))
     anchor=find(model.root,"ringanchor")
     ring_names={c.name for c in anchor.children}
     for n in ("ring","ring2","ring3","ring4"):

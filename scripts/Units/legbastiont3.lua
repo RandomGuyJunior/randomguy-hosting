@@ -49,8 +49,7 @@ local deploying = false
 local firing = false
 local fireSerial = 0
 
-local RING_DOCK_Y = -11.5
-local RING_DEPLOY_Y = 38 -- keep the previous maximum deployed height unchanged
+local RING_RISE = 38
 local RING_RISE_SPEED = 44 -- twice the previous deployment speed
 
 local fireTimeFrames = 96
@@ -63,10 +62,10 @@ local oldHeading
 local targetSwap = false
 
 local rings = {
-	{ piece = ring, axis = y_axis, idle = 330, firing = 520 },
-	{ piece = ring2, axis = x_axis, idle = 250, firing = 390 },
-	{ piece = ring3, axis = x_axis, idle = 380, firing = 600 },
-	{ piece = ring4, axis = z_axis, idle = 220, firing = 380 },
+	{ piece = ring, axis = y_axis, idle = 165, firing = 260 },
+	{ piece = ring2, axis = x_axis, idle = 125, firing = 195 },
+	{ piece = ring3, axis = x_axis, idle = 95, firing = 150 },
+	{ piece = ring4, axis = z_axis, idle = 55, firing = 95 },
 }
 
 local function SetVisualParam(name, value)
@@ -109,7 +108,7 @@ local function DockRings()
 	SetFiringState(false)
 	StopRings()
 
-	Move(ringAnchor, y_axis, RING_DOCK_Y, RING_RISE_SPEED)
+	Move(ringAnchor, y_axis, 0, RING_RISE_SPEED)
 	WaitForMove(ringAnchor, y_axis)
 
 	deployed = false
@@ -127,7 +126,7 @@ local function DeployRings()
 
 	-- Full idle rotation begins immediately; no staged acceleration.
 	SpinRings(false)
-	Move(ringAnchor, y_axis, RING_DEPLOY_Y, RING_RISE_SPEED)
+	Move(ringAnchor, y_axis, RING_RISE, RING_RISE_SPEED)
 	WaitForMove(ringAnchor, y_axis)
 
 	deploying = false
@@ -262,7 +261,7 @@ function script.Create()
 	-- The visible head stays fixed. Only these invisible beam pivots aim.
 	Turn(beamYaw, y_axis, 0)
 	Turn(beamPitch, x_axis, 0)
-	Move(ringAnchor, y_axis, RING_DOCK_Y)
+	Move(ringAnchor, y_axis, 0)
 	StopRings()
 
 	SetHoverState(false)
