@@ -137,7 +137,45 @@ local FRAG = [[
 		vec3 hsv = rgb2hsv(texColor.rgb);
 		float maskValue = 1.0;
 		if (useMask > 0.5) {
-			maskValue = texture2D(maskTex, vec2(texCoord.s, 1.0 - texCoord.t)).a;
+			vec2 muv = vec2(texCoord.s, 1.0 - texCoord.t);
+			float coreMask = texture2D(maskTex, muv).a;
+			float expandedMask = coreMask;
+			vec2 px = vec2(1.0 / 256.0);
+
+			// The 3D mask and BAR's finished buildpic do not share exactly the
+			// same framing. Expand the mask enough to recover paint that sits
+			// just outside the model render without opening the whole sea.
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 4.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-4.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0,  4.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -4.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 8.0,  8.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-8.0,  8.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2( 8.0, -8.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-8.0, -8.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(16.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(-16.0, 0.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, 16.0) * px).a);
+			expandedMask = max(expandedMask, texture2D(maskTex, muv + vec2(0.0, -16.0) * px).a);
+
+			// BAR's sea backdrop reaches the image edges. Use edge pixels as
+			// background references: expanded-mask pixels that still look like
+			// the fixed backdrop stay untouched, while real unit paint can pass.
+			vec3 bg0 = texture2D(tex0, vec2(0.025, 0.18)).rgb;
+			vec3 bg1 = texture2D(tex0, vec2(0.025, 0.50)).rgb;
+			vec3 bg2 = texture2D(tex0, vec2(0.025, 0.82)).rgb;
+			vec3 bg3 = texture2D(tex0, vec2(0.975, 0.18)).rgb;
+			vec3 bg4 = texture2D(tex0, vec2(0.975, 0.50)).rgb;
+			vec3 bg5 = texture2D(tex0, vec2(0.975, 0.82)).rgb;
+			float bgDist = distance(texColor.rgb, bg0);
+			bgDist = min(bgDist, distance(texColor.rgb, bg1));
+			bgDist = min(bgDist, distance(texColor.rgb, bg2));
+			bgDist = min(bgDist, distance(texColor.rgb, bg3));
+			bgDist = min(bgDist, distance(texColor.rgb, bg4));
+			bgDist = min(bgDist, distance(texColor.rgb, bg5));
+
+			bool looksLikeBackdrop = bgDist < 0.105;
+			maskValue = (coreMask > 0.08 || (expandedMask > 0.08 && !looksLikeBackdrop)) ? 1.0 : 0.0;
 		}
 
 		bool matchArm = inHueBand(hsv.x, refHueMinArm, refHueMaxArm)
