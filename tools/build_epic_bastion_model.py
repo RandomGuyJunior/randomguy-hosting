@@ -300,7 +300,8 @@ def rebuild(epic,sol,chim):
         pedestal.children=[yaw]
 
         # A dedicated reinforced support reaches down from the radial spine to
-        # the lowered pedestal. It stays under the turret's traverse volume.
+        # the lowered pedestal. It stays under the turret's traverse volume
+        # and terminates at a load-bearing plate immediately below the mount.
         support_spine=clone_mesh(sol_strut,f"extension_cannon_support_{index}",(0.0,-43.0,43.0),1.15)
         # Place the plate immediately below the pedestal's lower surface:
         # close enough to read as load-bearing, but not intersecting the turret.
