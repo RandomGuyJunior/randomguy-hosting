@@ -50,7 +50,7 @@ return {
 			removewait = true,
 			subfolder = "Scavengers/Buildings/DefenseOffense",
 			techlevel = 3,
-			epic_model_revision = 6,
+			epic_model_revision = 7,
 		},
 		featuredefs = {
 			dead = {
