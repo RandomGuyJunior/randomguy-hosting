@@ -180,6 +180,30 @@ def mesh_axis_bounds(piece, axis):
     values=[v[axis] for v in piece.verts]
     return min(values), max(values)
 
+def rotate_subtree_x(piece, degrees, rotate_root_offset=False):
+    """Bake an X rotation into a visible hierarchy while preserving script pivots.
+
+    Mesh vertices/normals are rotated, and child offsets are rotated around the
+    current piece origin. The root offset is left alone unless explicitly asked.
+    This lets an empty yaw pivot remain world-upright while its visible cannon
+    hierarchy is permanently mounted at the requested angle.
+    """
+    a=math.radians(degrees)
+    c=math.cos(a)
+    sn=math.sin(a)
+
+    if rotate_root_offset:
+        x,y,z=piece.offset
+        piece.offset=(x, y*c-z*sn, y*sn+z*c)
+
+    rotate_mesh_x(piece,degrees)
+
+    for child in piece.children:
+        x,y,z=child.offset
+        child.offset=(x, y*c-z*sn, y*sn+z*c)
+        rotate_subtree_x(child,degrees,False)
+    return piece
+
 def shorten_positive_z(piece, target_max_z):
     """Shorten only the forward (+Z) extent while keeping the rear anchored."""
     if not piece.verts:
@@ -337,50 +361,33 @@ def rebuild(epic,sol,chim):
         # Keep only the three good radial holder arms plus the Chimera mount.
         # No brace/plate connectors are added between the holder and cannon.
         #
-        # The visible triangle is the actual Chimera turretBaseHeading. Keep it
-        # upright, then seat the cannon directly onto its upper surface.
-        # Pull the whole mount inward so the triangle sits closer to the Bastion.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,36.0))
+        # Mount the intact Chimera cannon assembly onto the armor plate at the
+        # requested 105-degree orientation. The yaw pivot itself stays upright
+        # for aiming; only the visible donor geometry is permanently tilted.
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
         pedestal_scale=1.72
         housing_scale=1.34
-        pedestal_y=-5.0
-        pitch_y=4.0
-        seat_clearance=0.05
+        mount_tilt=105.0
 
         pedestal=clone_mesh(
             chim_turret_base,
             f"extension_pedestal_{index}",
-            (0.0,pedestal_y,0.0),
+            (0.0,-5.0,0.0),
             pedestal_scale
         )
+        rotate_mesh_x(pedestal,mount_tilt)
 
-        # Find the actual top contact patch of the upright triangular base.
-        pedestal_top=max(v[1] for v in pedestal.verts)
-        contact_band=[
-            v for v in pedestal.verts
-            if v[1] >= pedestal_top - 1.25
-        ]
-        contact_z=(
-            sum(v[2] for v in contact_band)/len(contact_band)
-            if contact_band else 0.0
-        )
-
-        # The yaw pivot stays invisible, but the cannon housing is now seated
-        # directly on the Chimera triangle instead of hovering above it.
-        housing_bottom,_=mesh_axis_bounds(chim_house,1)
-        seated_y=(
-            pedestal_y
-            + pedestal_top
-            + seat_clearance
-            - pitch_y
-            - housing_bottom*housing_scale
-        )
-        yaw=empty(f"gauss{index}_yaw",(0.0,seated_y,contact_z + 3.0))
-        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,pitch_y,0.0),housing_scale)
+        yaw=empty(f"gauss{index}_yaw",(0.0,5.5,0.5))
+        pitch=clone_mesh(chim_house,f"gauss{index}_pitch",(0.0,0.0,0.0),housing_scale)
         barrel=clone_mesh(chim_barrel,f"gauss{index}_barrel",(0.0,0.0,10.0),1.78)
         muzzle=empty(f"gauss{index}_muzzle",(0.0,0.0,29.0))
         barrel.children=[muzzle]
         pitch.children=[barrel]
+
+        # Rotate the complete visible cannon hierarchy, including child
+        # offsets, so the cannon itself—not only its triangular base—sits at
+        # 105 degrees on the armor plate.
+        rotate_subtree_x(pitch,mount_tilt)
         yaw.children=[pitch]
         mount.children=[pedestal,yaw]
 
@@ -447,40 +454,31 @@ def validate(model):
     for i in range(1,4):
         mount=find(model.root,f"extension_mountroot_{i}")
         pedestal=find(model.root,f"extension_pedestal_{i}")
-        if mount.offset != (0.0,-66.0,36.0):
-            raise RuntimeError(f"extension_mountroot_{i} is not pulled inward to the Chimera base position")
-        if pedestal.offset != (0.0,-5.0,0.0):
-            raise RuntimeError(f"extension_pedestal_{i} is not recessed below the cannon mount")
-
-        yaw=find(model.root,f"gauss{i}_yaw")
         pitch=find(model.root,f"gauss{i}_pitch")
-        pedestal_top_local=max(v[1] for v in pedestal.verts)
-        pedestal_top=pedestal_top_local+pedestal.offset[1]
-        housing_bottom=min(v[1] for v in pitch.verts)+pitch.offset[1]+yaw.offset[1]
-        gap=housing_bottom-pedestal_top
-        if gap < 0.00 or gap > 0.10:
-            raise RuntimeError(f"gauss{i} is not seated directly on Chimera turret base: gap={gap:.3f}")
+        barrel=find(model.root,f"gauss{i}_barrel")
 
-        contact_band=[v for v in pedestal.verts if v[1] >= pedestal_top_local-1.25]
-        expected_z=sum(v[2] for v in contact_band)/len(contact_band) if contact_band else 0.0
-        if abs(yaw.offset[2]-(expected_z+3.0)) > 0.01:
+        if mount.offset != (0.0,-66.0,49.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not at the 105-degree armor-plate mount position")
+        if pedestal.offset != (0.0,-5.0,0.0):
+            raise RuntimeError(f"extension_pedestal_{i} offset changed")
+
+        # A 105-degree X rotation moves the cannon's original +Z barrel offset
+        # strongly into -Y and slightly into -Z. This catches accidental
+        # regeneration of the donor hierarchy back to upright.
+        if not (barrel.offset[1] < -8.0 and barrel.offset[2] < 0.0):
             raise RuntimeError(
-                f"gauss{i} rear housing is not seated over the Chimera base: "
-                f"yawZ={yaw.offset[2]:.3f} expected={expected_z+3.0:.3f}"
+                f"gauss{i} cannon hierarchy is not baked at 105 degrees: "
+                f"barrel offset={barrel.offset}"
             )
-        if abs(pitch.offset[2]) > 0.01:
-            raise RuntimeError(f"gauss{i} housing has an extra Z offset")
+
+        # Preserve the exact Chimera base topology.
+        if len(pedestal.indices) != 306:
+            raise RuntimeError(f"extension_pedestal_{i} modified Chimera turret-base topology")
 
     for n in ("armature1","armature2","armature3"):
         arm=find(model.root,n)
         if arm.verts and max(v[2] for v in arm.verts) > 23.01:
             raise RuntimeError(f"{n} still extends into the turret volume")
-
-    # Chimera turretBaseHeading has 306 indices. Preserve that topology
-    # exactly; no wing/clearance cutting is allowed on the donor base.
-    for n in ("extension_pedestal_1","extension_pedestal_2","extension_pedestal_3"):
-        if len(find(model.root,n).indices) != 306:
-            raise RuntimeError(f"{n} modified Chimera turret-base topology")
 
 def main():
     src=sys.argv[1] if len(sys.argv)>1 else "objects3d/Units/legbastiont3.s3o"
