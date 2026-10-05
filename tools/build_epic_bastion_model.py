@@ -366,7 +366,7 @@ def rebuild(epic,sol,chim):
         # Mount the intact Chimera cannon assembly onto the armor plate at the
         # requested 105-degree orientation. The yaw pivot itself stays upright
         # for aiming; only the visible donor geometry is permanently tilted.
-        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,49.0))
+        mount=empty(f"extension_mountroot_{index}",(0.0,-66.0,46.0))
         pedestal_scale=1.72
         housing_scale=1.34
         barrel_scale=1.78
@@ -409,6 +409,18 @@ def rebuild(epic,sol,chim):
         )
         rotate_mesh_x(house,mount_tilt)
 
+        # Restore the Chimera pitch-joint cylinder as part of the rotating
+        # cannon piece. It sits back at the pitch origin, closing the visible
+        # gap between the two cylindrical sections instead of leaving an open
+        # see-through joint.
+        pitch_bridge=clone_mesh(
+            chim_pitch,
+            f"gauss{index}_pitchbridge",
+            (-house.offset[0], -house.offset[1], -house.offset[2]),
+            housing_scale
+        )
+        rotate_mesh_x(pitch_bridge,mount_tilt)
+
         barrel=clone_mesh(
             chim_barrel,
             f"gauss{index}_barrel",
@@ -423,7 +435,7 @@ def rebuild(epic,sol,chim):
         )
 
         barrel.children=[muzzle]
-        house.children=[barrel]
+        house.children=[pitch_bridge,barrel]
         pitch.children=[house]
         yaw.children=[pitch]
         mount.children=[pedestal,yaw]
@@ -452,9 +464,9 @@ def validate(model):
     required=[
         "ringanchor","ring","ring2","ring3","ring4","beam_yaw","beam_pitch","beam_muzzle",
         "extension_root_1","extension_root_2","extension_root_3",
-        "gauss1_yaw","gauss1_pitchpivot","gauss1_pitch","gauss1_barrel","gauss1_muzzle",
-        "gauss2_yaw","gauss2_pitchpivot","gauss2_pitch","gauss2_barrel","gauss2_muzzle",
-        "gauss3_yaw","gauss3_pitchpivot","gauss3_pitch","gauss3_barrel","gauss3_muzzle",
+        "gauss1_yaw","gauss1_pitchpivot","gauss1_pitch","gauss1_pitchbridge","gauss1_barrel","gauss1_muzzle",
+        "gauss2_yaw","gauss2_pitchpivot","gauss2_pitch","gauss2_pitchbridge","gauss2_barrel","gauss2_muzzle",
+        "gauss3_yaw","gauss3_pitchpivot","gauss3_pitch","gauss3_pitchbridge","gauss3_barrel","gauss3_muzzle",
         "extension_mountroot_1","extension_mountroot_2","extension_mountroot_3",
         "extension_pedestal_1","extension_pedestal_2","extension_pedestal_3",
         "extension_arm_1a","extension_arm_1b",
@@ -494,8 +506,8 @@ def validate(model):
         pitch=find(model.root,f"gauss{i}_pitch")
         barrel=find(model.root,f"gauss{i}_barrel")
 
-        if mount.offset != (0.0,-66.0,49.0):
-            raise RuntimeError(f"extension_mountroot_{i} is not at the 105-degree armor-plate mount position")
+        if mount.offset != (0.0,-66.0,46.0):
+            raise RuntimeError(f"extension_mountroot_{i} is not 3 units inward at the 105-degree armor-plate mount position")
         if pedestal.offset != (0.0,-5.0,0.0):
             raise RuntimeError(f"extension_pedestal_{i} offset changed")
 
@@ -511,6 +523,10 @@ def validate(model):
         # Preserve the Chimera base topology; geometry is only rotated.
         if len(pedestal.indices) != 306:
             raise RuntimeError(f"extension_pedestal_{i} modified Chimera turret-base topology")
+
+        bridge=find(model.root,f"gauss{i}_pitchbridge")
+        if not bridge.verts:
+            raise RuntimeError(f"gauss{i} pitch bridge missing visible joint geometry")
 
         # The yaw pivot must now sit near the rotated donor attachment point,
         # not at the old arbitrary +Y offset.
