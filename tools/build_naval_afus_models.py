@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build three naval advanced-fusion S3O models from stock BAR faction assets.
 
+Generated models are deterministic; the build workflow commits the binary outputs.
+
 Design:
 - enlarged/flatter naval fusion foundation sized around a land-Afus footprint
 - three compact land-Afus reactor modules arranged on the foundation
