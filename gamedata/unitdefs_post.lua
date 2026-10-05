@@ -437,37 +437,6 @@ local function appendBuildOptionOnce(unitName, optionName)
 	ud.buildoptions[#ud.buildoptions + 1] = optionName
 end
 
-local function addUnderwaterAdvancedFusionBuildOptions()
-	local replacements = {
-		armuwfus = "armuwafus",
-		coruwfus = "coruwafus",
-		leganavalfusion = "leguwafus",
-	}
-
-	for _, unitDef in pairs(UnitDefs) do
-		local options = unitDef.buildoptions
-		if options then
-			local existing = {}
-			for i = 1, #options do
-				existing[options[i]] = true
-			end
-
-			for sourceName, advancedName in pairs(replacements) do
-				if existing[sourceName] and not existing[advancedName] then
-					options[#options + 1] = advancedName
-					existing[advancedName] = true
-				end
-
-				local scavSource = sourceName .. "_scav"
-				local scavAdvanced = advancedName .. "_scav"
-				if existing[scavSource] and not existing[scavAdvanced] then
-					options[#options + 1] = scavAdvanced
-					existing[scavAdvanced] = true
-				end
-			end
-		end
-	end
-end
 
 local function addEpicBastionBuildOptions()
 	-- Match BAR's Scavenger Units for Players behavior: regular Legion T2
@@ -525,7 +494,6 @@ preProcessUnitDefs()
 if scavengersEnabled then
 	createScavengerUnitDefs()
 end
-addUnderwaterAdvancedFusionBuildOptions()
 addEpicBastionBuildOptions()
 postProcessAllUnitDefs()
 postProcessRegularUnitDefs()
