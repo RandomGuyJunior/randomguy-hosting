@@ -3,11 +3,15 @@
 
 Generated models are deterministic; the build workflow commits the binary outputs.
 
+Temporary workshop for the three committed underwater-AFUS S3Os.
+
 Design:
-- enlarged/flatter naval fusion foundation sized around a land-Afus footprint
-- three compact land-Afus reactor modules arranged on the foundation
+- faction's real underwater-fusion hull/foundation
+- widened to the 6x6 land-AFUS footprint
+- one dominant advanced-fusion reactor core
+- two smaller auxiliary advanced reactor modules
 - faction-native meshes/textures only
-- generated output: armuwafus.s3o, coruwafus.s3o, leguwafus.s3o
+- final repository keeps the generated S3Os, not this workshop
 """
 
 import copy
@@ -225,19 +229,15 @@ def build_one(faction, naval_name, afus_name, out_name):
             f"{afus_name}={afus.tex1}/{afus.tex2}"
         )
 
-    # Widen the naval donor to approximately a 6x6 advanced-fusion footprint.
+    # Underwater hull is the visual foundation. Target roughly a 6x6 build
+    # footprint, matching the land advanced fusion instead of the smaller
+    # ordinary underwater fusion.
     nb = bounds(naval.root)
     nw=max(1.0,nb[1]-nb[0])
     nd=max(1.0,nb[5]-nb[4])
-    target_span = 108.0
-    sx = target_span / nw
-    sz = target_span / nd
-
-    foundation = clone_tree(naval.root, "nav_")
-    transform_tree(foundation, sx, 0.88, sz)
-
-    # Flatten the foundation's visual dominance slightly, then mount three
-    # compact advanced-fusion modules above it.
+    target_span = 102.0
+    foundation = clone_tree(naval.root, "uw_")
+    transform_tree(foundation, target_span / nw, 0.92, target_span / nd)
     fb = bounds(foundation)
     foundation_top = fb[3]
 
@@ -245,34 +245,35 @@ def build_one(faction, naval_name, afus_name, out_name):
     aw=max(1.0,ab[1]-ab[0])
     ad=max(1.0,ab[5]-ab[4])
     module_span=max(aw,ad)
-    module_scale = 38.0 / module_span
 
-    root = Piece(f"{faction}_naval_afus", (0,0,0), [], [], 2, 0, [foundation])
+    root = Piece(f"{faction}_underwater_advanced_fusion", (0,0,0), [], [], 2, 0, [foundation])
 
-    positions = [
-        (-27.0, 18.0),
-        ( 27.0, 18.0),
-        (  0.0,-28.0),
-    ]
+    # Main AFUS reactor: large and central. Keep its original piece names so
+    # the faction's normal land-AFUS COB script can animate it.
+    main_core = clone_tree(afus.root, "")
+    main_scale = 48.0 / module_span
+    transform_tree(main_core, main_scale, main_scale * 0.92, main_scale)
+    mb = bounds(main_core)
+    translate_root(main_core, 0.0, foundation_top - mb[2] - 2.0, -8.0)
+    root.children.append(main_core)
 
-    for idx,(x,z) in enumerate(positions, 1):
-        core = clone_tree(afus.root, f"core{idx}_")
-        # Slightly taller than wide so each reactor still reads as "advanced"
-        # at build-menu scale.
-        transform_tree(core, module_scale, module_scale*1.10, module_scale)
+    # Auxiliary reactors make the naval version visibly more advanced/powerful
+    # without simply stacking three full AFUS buildings.
+    side_scale = 28.0 / module_span
+    for idx,x in enumerate((-31.0, 31.0), 1):
+        core = clone_tree(afus.root, f"aux{idx}_")
+        transform_tree(core, side_scale, side_scale * 0.82, side_scale)
         cb = bounds(core)
-        core_min_y = cb[2]
-        translate_root(core, x, foundation_top - core_min_y - 1.5, z)
+        translate_root(core, x, foundation_top - cb[2] - 3.5, 20.0)
         root.children.append(core)
 
     model = Model(naval.radius, naval.height, naval.mid, naval.tex1, naval.tex2, root)
-    b = recalc_model(model)
+    recalc_model(model)
 
     os.makedirs(OUTDIR, exist_ok=True)
     out = os.path.join(OUTDIR, out_name)
     save(model, out)
 
-    # Parse it back to prove the generated binary is valid.
     check = load(out)
     cb = recalc_model(check)
     spanx=cb[1]-cb[0]
@@ -282,7 +283,7 @@ def build_one(faction, naval_name, afus_name, out_name):
         f"span=({spanx:.1f} x {spanz:.1f}) height={check.height:.1f} "
         f"radius={check.radius:.1f}"
     )
-    if spanx > 135 or spanz > 135:
+    if spanx > 122 or spanz > 122:
         raise RuntimeError(f"{out_name}: model footprint grew unexpectedly: {spanx:.1f}x{spanz:.1f}")
 
 def main():
@@ -290,9 +291,9 @@ def main():
     # Legion has no stock underwater fusion, so its standard Legion fusion is
     # widened/flattened into the faction-native naval foundation.
     builds = [
-        ("arm", "armuwfus.s3o", "armafus.s3o", "armuwafus.s3o"),
-        ("cor", "coruwfus.s3o", "corafus.s3o", "coruwafus.s3o"),
-        ("leg", "legfus.s3o",   "legafus.s3o", "leguwafus.s3o"),
+        ("arm", "armuwfus.s3o",          "armafus.s3o", "armuwafus.s3o"),
+        ("cor", "coruwfus.s3o",          "corafus.s3o", "coruwafus.s3o"),
+        ("leg", "leganavalfusion.s3o",   "legafus.s3o", "leguwafus.s3o"),
     ]
     for args in builds:
         build_one(*args)
