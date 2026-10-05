@@ -1,4 +1,5 @@
 name: Build Naval Advanced Fusion Models
+# Temporary workshop: deleted after the three S3Os are committed.
 
 on:
   push:
