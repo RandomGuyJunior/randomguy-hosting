@@ -17,7 +17,7 @@ jobs:
       - name: Analyze exact original geometry UV matches
         run: python3 tools/restore_epic_bastion_original_uv.py
       - name: Restore original UVs without changing geometry
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         run: |
           python3 tools/restore_epic_bastion_original_uv.py --apply
           git config user.name "github-actions[bot]"
