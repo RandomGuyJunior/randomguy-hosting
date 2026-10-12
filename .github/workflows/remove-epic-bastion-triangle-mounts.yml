@@ -1,0 +1,28 @@
+name: Remove Epic Bastion Triangle Mounts
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/remove_epic_bastion_triangle_mounts.py"
+      - ".github/workflows/remove-epic-bastion-triangle-mounts.yml"
+permissions:
+  contents: write
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove just three mount meshes
+        run: |
+          python3 tools/remove_epic_bastion_triangle_mounts.py
+          python3 tools/s3o_inspect.py objects3d/Units/legbastiont3.s3o
+      - name: Commit model
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Remove three clipping Epic Bastion triangle mounts"
+          git push origin HEAD:main
