@@ -15,7 +15,7 @@ old=load(str(out));new=load('objects3d/Units/legbastiont3.s3o')
 src={p.name:p for p in walk(old.root)}
 total=collections.Counter();changes=collections.Counter()
 for p in walk(new.root):
- if p.name not in ('base','turret','ring5'):continue
+ if p.name != 'base':continue
  donor=src.get(p.name)
  if not donor:continue
  def key(v):return tuple(round(x,4) for x in v[:6])
@@ -35,7 +35,7 @@ for p in walk(new.root):
  print(p.name,'vertices=',len(p.verts),'exact_unique_matches=',matches,'ambiguous=',ambiguous,'restored_different=',changed)
  p.verts=fixed
  print('unmatched=',len(p.verts)-matches-ambiguous)
-assert sum(changes.values())>100, 'No substantial recovery identified; refusing to save'
+assert sum(changes.values())>9000, 'No substantial recovery identified; refusing to save'
 print('total changed',sum(changes.values()))
 if '--apply' in sys.argv:
  path='objects3d/Units/legbastiont3.s3o'
