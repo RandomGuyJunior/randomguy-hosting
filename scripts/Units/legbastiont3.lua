@@ -213,18 +213,20 @@ local function NormalizeAngle(angle)
 	return angle
 end
 
-local function AimGauss(yawPiece, pitchPiece, signal, parentHeading, heading, pitch)
-	local localHeading = NormalizeAngle(heading - parentHeading)
-
-	-- Exactly 210 degrees of traverse, centered on each cannon's outward radial axis.
-	-- each radial turret extension.
-	if math.abs(localHeading) > GAUSS_HALF_ARC then
+-- The V15 S3O has all three barrel axes unbaked to local +Z; each yaw
+-- piece is positioned around the tower but its parent is NOT rotated.
+-- Spring's heading is unit-relative. Use the radial center only to restrict
+-- the allowed arc; add it back to obtain the yaw piece's unit-relative angle.
+local function AimGauss(yawPiece, pitchPiece, signal, arcCenter, heading, pitch)
+	local relativeAim = NormalizeAngle(heading - arcCenter)
+	if math.abs(relativeAim) > GAUSS_HALF_ARC then
 		return false
 	end
 
+	local modelYaw = NormalizeAngle(arcCenter + relativeAim)
 	Signal(signal)
 	SetSignalMask(signal)
-	Turn(yawPiece, y_axis, heading, math.rad(75))
+	Turn(yawPiece, y_axis, modelYaw, math.rad(75))
 	Turn(pitchPiece, x_axis, -pitch, math.rad(52))
 	WaitForTurn(yawPiece, y_axis)
 	WaitForTurn(pitchPiece, x_axis)
@@ -269,7 +271,8 @@ function script.Create()
 	Turn(extension1, y_axis, 0)
 	Turn(extension2, y_axis, 0)
 	Turn(extension3, y_axis, 0)
-	-- Rear cannon geometry has been unbaked to local forward in V15.
+	-- V15 barrels have local +Z forward. Initialize their yaw to their
+	-- outward radial centers; AimGauss uses the SAME center for targeting.
 	Turn(gauss1Yaw, y_axis, 0)
 	Turn(gauss2Yaw, y_axis, math.rad(-120))
 	Turn(gauss3Yaw, y_axis, math.rad(120))
