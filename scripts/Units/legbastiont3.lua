@@ -224,7 +224,7 @@ local function AimGauss(yawPiece, pitchPiece, signal, parentHeading, heading, pi
 
 	Signal(signal)
 	SetSignalMask(signal)
-	Turn(yawPiece, y_axis, localHeading, math.rad(75))
+	Turn(yawPiece, y_axis, heading, math.rad(75))
 	Turn(pitchPiece, x_axis, -pitch, math.rad(52))
 	WaitForTurn(yawPiece, y_axis)
 	WaitForTurn(pitchPiece, x_axis)
@@ -269,6 +269,10 @@ function script.Create()
 	Turn(extension1, y_axis, 0)
 	Turn(extension2, y_axis, 0)
 	Turn(extension3, y_axis, 0)
+	-- Rear cannon geometry has been unbaked to local forward in V15.
+	Turn(gauss1Yaw, y_axis, 0)
+	Turn(gauss2Yaw, y_axis, math.rad(-120))
+	Turn(gauss3Yaw, y_axis, math.rad(120))
 
 	-- The visible head stays fixed. Only these invisible beam pivots aim.
 	Turn(beamYaw, y_axis, 0)
@@ -332,7 +336,7 @@ function script.AimWeapon1(heading, pitch)
 	-- A horizontal laser needs the ring plane vertical: 90 degrees from rest.
 	-- For laser elevation pitch, the plane's normal follows the laser exactly.
 	-- The laser emerges from its center, perpendicular to the ring plane.
-	local ringAimTilt = -(RING_NORMAL_BASE_TILT - pitch)
+	local ringAimTilt = -(RING_NORMAL_BASE_TILT + pitch)
 	Turn(beamYaw, y_axis, heading, math.rad(30))
 	Turn(beamPitch, x_axis, -pitch, math.rad(15))
 	Turn(ring5Pitch, x_axis, ringAimTilt, RING_AIM_SPEED)
