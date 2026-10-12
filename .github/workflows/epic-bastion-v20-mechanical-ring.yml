@@ -1,0 +1,22 @@
+name: Epic Bastion V20 Mechanical Fifth Ring UV
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-bastion-v20-mechanical-ring.yml"
+      - "tools/epic_bastion_v20_mechanical_ring_uv.py"
+permissions:
+  contents: write
+jobs:
+  update-ring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate ring-only detailed UV remap
+        run: python3 tools/epic_bastion_v20_mechanical_ring_uv.py
+      - name: Apply and commit mechanical ring UVs
+        run: |
+          python3 tools/epic_bastion_v20_mechanical_ring_uv.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V20 detailed Legion mechanical fifth ring UVs" && git push)
