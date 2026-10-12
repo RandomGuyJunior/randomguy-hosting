@@ -1,0 +1,25 @@
+name: Install Exact Epic Bastion V15 S3O
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/install-epic-bastion-v15.yml"
+permissions:
+  contents: write
+jobs:
+  install-v15:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate and verify exact V15 S3O
+        run: python3 tools/upgrade_epic_bastion_v15.py
+      - name: Commit verified V15 model
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Install verified Epic Bastion V15 S3O model"
+          git push origin HEAD:main
