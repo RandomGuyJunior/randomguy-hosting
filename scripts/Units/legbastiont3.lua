@@ -204,7 +204,7 @@ local function HeadingDelta(a, b)
 	return d
 end
 
-local GAUSS_HALF_ARC = math.rad(135)
+local GAUSS_HALF_ARC = math.rad(105)
 
 local function NormalizeAngle(angle)
 	local twoPi = math.pi * 2
@@ -216,7 +216,7 @@ end
 local function AimGauss(yawPiece, pitchPiece, signal, parentHeading, heading, pitch)
 	local localHeading = NormalizeAngle(heading - parentHeading)
 
-	-- Exactly 270 degrees of traverse: 90 degree blind wedge directly behind
+	-- Exactly 210 degrees of traverse, centered on each cannon's outward radial axis.
 	-- each radial turret extension.
 	if math.abs(localHeading) > GAUSS_HALF_ARC then
 		return false
