@@ -2,8 +2,6 @@ name: Audit Original Legion Bastion UVs
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "tools/audit_epic_legion_uv.py"
 permissions:
   contents: read
 jobs:
