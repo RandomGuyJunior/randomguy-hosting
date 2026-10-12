@@ -1,0 +1,22 @@
+name: Epic Bastion V21 Ring UV Correction
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-bastion-v21-ring.yml"
+      - "tools/epic_bastion_v21_ring_uv.py"
+permissions:
+  contents: write
+jobs:
+  update-ring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check V19 green mapping and V21 constraints
+        run: python3 tools/epic_bastion_v21_ring_uv.py
+      - name: Apply mechanical texture regions only
+        run: |
+          python3 tools/epic_bastion_v21_ring_uv.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V21 restore neon green and textured gray ring" && git push)
