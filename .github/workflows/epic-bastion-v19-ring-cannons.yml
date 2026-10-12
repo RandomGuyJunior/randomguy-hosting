@@ -1,0 +1,24 @@
+name: Epic Bastion V19 Ring UV and Shorter Cannons
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-bastion-v19-ring-cannons.yml"
+      - "tools/epic_bastion_v19_fifth_ring_and_cannons.py"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify V19 transformations without writing
+        run: python3 tools/epic_bastion_v19_fifth_ring_and_cannons.py
+      - name: Apply V19 UV and cannon-geometry changes
+        run: |
+          python3 tools/epic_bastion_v19_fifth_ring_and_cannons.py --apply
+          python3 tools/s3o_inspect.py objects3d/Units/legbastiont3.s3o > /tmp/epic-bastion-v19-structure.txt || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V19 themed fifth ring and shorter cannons" && git push)
