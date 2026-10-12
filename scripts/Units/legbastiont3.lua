@@ -14,6 +14,8 @@ local ring = piece("ring")
 local ring2 = piece("ring2")
 local ring3 = piece("ring3")
 local ring4 = piece("ring4")
+local ring5Pitch = piece("ring5_pitch")
+local ring5 = piece("ring5")
 local beamPitch = piece("beam_pitch")
 local beamMuzzle = piece("beam_muzzle")
 
@@ -41,6 +43,8 @@ local SIG_RING = 2
 local SIG_GAUSS_1 = 4
 local SIG_GAUSS_2 = 8
 local SIG_GAUSS_3 = 16
+local RING_NORMAL_BASE_TILT = math.rad(90)
+local RING_AIM_SPEED = math.rad(80)
 
 local active = true
 local alive = true
@@ -49,8 +53,8 @@ local deploying = false
 local firing = false
 local fireSerial = 0
 
-local RING_REST = -10
-local RING_RISE = 38
+local RING_REST = 0 -- S3O ringanchor begins at its physical resting position
+local RING_RISE = 48 -- Five rings rise together; original 48-unit deployment travel
 local RING_RISE_SPEED = 44 -- twice the previous deployment speed
 
 local fireTimeFrames = 96
@@ -110,7 +114,9 @@ local function DockRings()
 	deploying = false
 	SetFiringState(false)
 	StopRings()
-
+	-- Gray optical aiming ring does not spin, and docks flat.
+	Turn(ring5Pitch, x_axis, 0, RING_AIM_SPEED)
+	WaitForTurn(ring5Pitch, x_axis)
 	Move(ringAnchor, y_axis, RING_REST, RING_RISE_SPEED)
 	WaitForMove(ringAnchor, y_axis)
 
@@ -248,6 +254,7 @@ function script.Create()
 	Show(ring2)
 	Show(ring3)
 	Show(ring4)
+	Show(ring5)
 	Show(gauss1Yaw)
 	Show(gauss2Yaw)
 	Show(gauss3Yaw)
@@ -257,13 +264,16 @@ function script.Create()
 	Turn(armPivot3, y_axis, math.rad(-120))
 
 	-- New turret extensions are three identical radial assemblies.
+	-- V14 S3O already places the three cannon mounts radially at 0,+120,-120.
+	-- Do not rotate the extension roots again: their pivots and geometry are pre-positioned.
 	Turn(extension1, y_axis, 0)
-	Turn(extension2, y_axis, math.rad(120))
-	Turn(extension3, y_axis, math.rad(-120))
+	Turn(extension2, y_axis, 0)
+	Turn(extension3, y_axis, 0)
 
 	-- The visible head stays fixed. Only these invisible beam pivots aim.
 	Turn(beamYaw, y_axis, 0)
 	Turn(beamPitch, x_axis, 0)
+	Turn(ring5Pitch, x_axis, 0)
 	Move(ringAnchor, y_axis, RING_REST)
 	StopRings()
 
@@ -278,11 +288,13 @@ end
 
 function script.Activate()
 	active = true
+	oldHeading = nil
 	return 1
 end
 
 function script.Deactivate()
 	active = false
+	oldHeading = nil
 	Signal(SIG_AIM_MAIN)
 	Signal(SIG_GAUSS_1)
 	Signal(SIG_GAUSS_2)
@@ -292,11 +304,12 @@ function script.Deactivate()
 end
 
 function script.AimFromWeapon1()
-	return ringAnchor
+	-- Stable direction pivot; the fifth ring itself has an optical tilt.
+	return beamPitch
 end
 
 function script.QueryWeapon1()
-	return beamMuzzle
+	return beamMuzzle -- must be centered in ring5, on independent beam direction pivot
 end
 
 function script.AimWeapon1(heading, pitch)
@@ -315,12 +328,17 @@ function script.AimWeapon1(heading, pitch)
 	end
 	oldHeading = heading
 
-	-- Invisible internal aiming only. 'turret' is intentionally never turned.
+	-- In the model's horizontal rest pose the ring plane is horizontal.
+	-- A horizontal laser needs the ring plane vertical: 90 degrees from rest.
+	-- For laser elevation pitch, the plane's normal follows the laser exactly.
+	-- The laser emerges from its center, perpendicular to the ring plane.
+	local ringAimTilt = -(RING_NORMAL_BASE_TILT - pitch)
 	Turn(beamYaw, y_axis, heading, math.rad(30))
 	Turn(beamPitch, x_axis, -pitch, math.rad(15))
-
+	Turn(ring5Pitch, x_axis, ringAimTilt, RING_AIM_SPEED)
 	WaitForTurn(beamYaw, y_axis)
 	WaitForTurn(beamPitch, x_axis)
+	WaitForTurn(ring5Pitch, x_axis)
 
 	while active and alive and not deployed do
 		Sleep(20)
@@ -397,6 +415,7 @@ function script.Killed(recentDamage, maxHealth)
 	for i = 1, #rings do
 		Explode(rings[i].piece, fx)
 	end
+	Explode(ring5, fx)
 	Explode(gauss1Yaw, fx)
 	Explode(gauss1Barrel, fx)
 	Explode(gauss2Yaw, fx)
