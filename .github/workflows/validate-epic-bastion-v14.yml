@@ -1,0 +1,45 @@
+name: Validate Epic Bastion V14
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/Units/legbastiont3.lua"
+      - "objects3d/Units/legbastiont3.s3o"
+      - ".github/workflows/validate-epic-bastion-v14.yml"
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Lua syntax and S3O piece bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          luac -p scripts/Units/legbastiont3.lua
+          python3 - <<'PY'
+          import re, struct
+          from pathlib import Path
+          model = Path("objects3d/Units/legbastiont3.s3o").read_bytes()
+          lua = Path("scripts/Units/legbastiont3.lua").read_text()
+          h=struct.unpack_from("<12sI5f4I",model)
+          assert h[0].startswith(b"Spring unit")
+          ps=struct.Struct("<10I3f")
+          names=set()
+          def walk(offset):
+              a=ps.unpack_from(model,offset)
+              name=model[a[0]:model.index(b"\0",a[0])].decode()
+              assert name not in names, "duplicate piece: "+name
+              names.add(name)
+              if a[1]:
+                  for child in struct.unpack_from("<"+"I"*a[1],model,a[2]):walk(child)
+          walk(h[7])
+          used=set(re.findall(r'piece\("([^"]+)"\)',lua))
+          missing=used-names
+          assert not missing, "Missing model pieces: "+repr(missing)
+          assert len(names)>=30 and "ring5_pitch" in names and "ring5" in names
+          assert "Spin(ring5" not in lua and "StopSpin(ring5" not in lua
+          assert "RING_NORMAL_BASE_TILT" in lua
+          print(f"Validated {len(names)} pieces, {len(used)} script bindings, and perpendicular ring controls")
+          PY
