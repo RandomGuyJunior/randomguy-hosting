@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - ".github/workflows/epic-bastion-v17-cradle-uv.yml"
+      - "tools/epic_bastion_v17_cradle_ring_uv.py"
 permissions:
   contents: write
 jobs:
@@ -23,5 +24,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add objects3d/Units/legbastiont3.s3o
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "V17 Legion cradle and fifth ring atlas UVs"
+          git commit -m "Remap Legion cradle and fifth ring using pixel-verified atlas surfaces"
           git push origin HEAD:main
