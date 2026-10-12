@@ -1,0 +1,24 @@
+name: Deploy Epic Bastion UV Test
+on:
+  push:
+    paths:
+      - ".github/workflows/deploy-epic-bastion-uv-test.yml"
+      - "tools/epic_bastion_uv_test_20261012.py"
+permissions:
+  contents: write
+jobs:
+  commit-uv-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validate UV test without writing
+        run: python3 tools/epic_bastion_uv_test_20261012.py
+      - name: Build and commit UV test model
+        run: |
+          python3 tools/epic_bastion_uv_test_20261012.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Test UV repair for Epic Bastion ring mounts and central pylon" && git push)
