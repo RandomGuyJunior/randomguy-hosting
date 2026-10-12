@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Epic Bastion Legion atlas: material-aware UV remap only (no geometry/animation changes)."""
+"""Epic Bastion Legion atlas: pixel-verified cradle and fifth-ring UV remap (no geometry/animation changes)."""
 import struct,math,sys,collections,hashlib
 from pathlib import Path
 H=struct.Struct('<12sI5f4I')
@@ -26,19 +26,16 @@ def walk(p):
  for c in p.children:walk(c)
 walk(root)
 assert len(pieces)==33
+# Pixel-verified 2048x2048 atlas locations. All boxes lie wholly inside an actual
+# Legion surface; exclude seams, yellow/black hazards, and neighboring panels.
 PATCHES={
- 'dark_armour':(785,8,895,111),
- 'dark_armour_2':(925,8,1030,111),
- 'grey_armour':(10,8,143,111),
- 'light_grey':(10,8,125,105),
- 'neon_green':(47,1455,53,1495),
- 'bronze_lower':(398,475,524,572),
- 'machinery':(795,485,928,562),
- 'machinery_2':(938,481,1074,560),
- 'metal_strip':(882,690,935,887),
- 'dark_rim':(792,305,1110,349),
- 'dark_plate':(790,175,913,274)
+ 'cradle_plate':(20,15,125,60), # solid medium-gray armor, visually checked
+ 'cradle_side':(20,83,125,125), # same first armor sheet, lower inset plate
+ 'ring_light_gray':(24,18,124,60), # clean light/medium-gray plate interior
+ 'ring_edge_gray':(158,14,222,60), # inset gray structural face
+ 'indicator_green':(129,1549,138,1562), # center of actual neon-green LED
 }
+
 def map_faces(mesh,editable,choose):
  vertices=mesh.verts
  indices=mesh.indices
@@ -94,17 +91,20 @@ def body_material(c,n,face):
  if y<=96 and r<=40:return 'dark_armour_2'
  return 'grey_armour'
 counts={}
-counts['base']=map_faces(pieces['base'],lambda i,tri,vs:(sum(v[1] for v in vs)/3>158 and math.hypot(sum(v[0] for v in vs)/3,sum(v[2] for v in vs)/3)<47),lambda c,n,f:'light_grey' if abs(n[1])>.45 else 'grey_armour')
+# Only new upper cradle faces are touched. Original Bastion UVs untouched elsewhere.
+counts['base']=map_faces(
+ pieces['base'],
+ lambda i,tri,vs:(sum(v[1] for v in vs)/3>158 and math.hypot(sum(v[0] for v in vs)/3,sum(v[2] for v in vs)/3)<47),
+ lambda c,n,f:'cradle_plate' if abs(n[1])>.45 else 'cradle_side')
 def ring_material(c,n,face):
  r=math.hypot(c[0],c[2])
- # Separate outward details from the main annular body, keeping the ring pale.
- # Tiny outer modules use official Legion neon-green indicator patch.
- if r>31.7 and face%8 in (0,1):
-  return 'neon_green'
- if abs(n[1])>max(abs(n[0]),abs(n[2])):
-  return 'light_grey'
- return 'grey_armour'
+ # Real outer indicator modules extend beyond the radius of the annular ring.
+ # Do not choose LED faces by face index; that gave unpredictable green triangles.
+ if r>32.5:return 'indicator_green'
+ if abs(n[1])>max(abs(n[0]),abs(n[2])):return 'ring_light_gray'
+ return 'ring_edge_gray'
 counts['ring5']=map_faces(pieces['ring5'],lambda *args:True,ring_material)
+
 def align(buf):
  while len(buf)%4:buf.append(0)
 def strz(buf,value):
