@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Epic Bastion Legion atlas: pixel-verified cradle and fifth-ring UV remap (no geometry/animation changes)."""
+"""Epic Bastion Legion atlas: fix S3O vertical UV origin with coherent panel mapping (no geometry/animation changes)."""
 import struct,math,sys,collections,hashlib
 from pathlib import Path
 H=struct.Struct('<12sI5f4I')
@@ -28,12 +28,15 @@ walk(root)
 assert len(pieces)==33
 # Pixel-verified 2048x2048 atlas locations. All boxes lie wholly inside an actual
 # Legion surface; exclude seams, yellow/black hazards, and neighboring panels.
+# Verified from the actual official leg_color.dds displayed at 2048 pixels.
+# IMPORTANT: preview pixel Y increases DOWN; S3O V increases UP.
+# All regions deliberately stay inside flat artwork, away from hazard lines.
 PATCHES={
- 'cradle_plate':(20,15,125,60), # solid medium-gray armor, visually checked
- 'cradle_side':(20,83,125,125), # same first armor sheet, lower inset plate
- 'ring_light_gray':(24,18,124,60), # clean light/medium-gray plate interior
- 'ring_edge_gray':(158,14,222,60), # inset gray structural face
- 'indicator_green':(129,1549,138,1562), # center of actual neon-green LED
+ 'cradle_plate':(40,26,103,52),     # neutral gray armor panel
+ 'cradle_side':(49,83,112,105),     # neutral gray inset plate
+ 'ring_light_gray':(46,26,115,51), # light gray plating
+ 'ring_edge_gray':(173,24,220,50), # separate gray trim
+ 'indicator_green':(130,1552,135,1558), # sampled true green LED pixel
 }
 
 def map_faces(mesh,editable,choose):
@@ -65,12 +68,19 @@ def map_faces(mesh,editable,choose):
   axis=max(range(3),key=lambda i:abs(n[i]))
   dims=[i for i in range(3) if i!=axis]
   q=[(v[dims[0]],v[dims[1]]) for v in p]
-  mini=[min(x[i] for x in q) for i in range(2)]
-  maxi=[max(x[i] for x in q) for i in range(2)]
-  scale=[max(0.00001,maxi[i]-mini[i]) for i in range(2)]
+  # Coherent world-space projection: adjacent triangles on a surface sample
+  # the same location instead of each triangle stretching an entire plate.
+  # Repeat a clean subsection at panel scale. Atlas occupies 2048x2048 px.
+  x0,y0,x1,y1=PATCHES[patch]
+  cx=(x0+x1)*.5;cy=(y0+y1)*.5
+  # Restrict within safe interior. x/y world units map to a few atlas pixels.
+  horizontal=max(1.,(x1-x0)*.34)
+  vertical=max(1.,(y1-y0)*.34)
   for vert,xy in zip(vs,q):
-   u=(x0+3+(x1-x0-6)*(xy[0]-mini[0])/scale[0])/2048
-   v=(y0+3+(y1-y0-6)*(xy[1]-mini[1])/scale[1])/2048
+   px=cx+((xy[0]*.45+horizontal)%(2*horizontal)-horizontal)
+   py=cy+((xy[1]*.38+vertical)%(2*vertical)-vertical)
+   u=px/2048
+   v=1.0-py/2048   # CRITICAL: flipped vertical atlas origin
    new_indices.append(len(new_verts))
    new_verts.append((*vert[:6],u,v))
  mesh.verts=new_verts
@@ -91,15 +101,14 @@ def body_material(c,n,face):
  if y<=96 and r<=40:return 'dark_armour_2'
  return 'grey_armour'
 counts={}
-# Only new upper cradle faces are touched. Original Bastion UVs untouched elsewhere.
+# Preserve the correctly UV-mapped stock lower Bastion and cannon donors.
+# Only upper Epic-specific shell/cradle materials are replaced.
 counts['base']=map_faces(
  pieces['base'],
- lambda i,tri,vs:(sum(v[1] for v in vs)/3>158 and math.hypot(sum(v[0] for v in vs)/3,sum(v[2] for v in vs)/3)<47),
- lambda c,n,f:'cradle_plate' if abs(n[1])>.45 else 'cradle_side')
+ lambda face,tri,vs:(sum(v[1] for v in vs)/3>112 and math.hypot(sum(v[0] for v in vs)/3,sum(v[2] for v in vs)/3)<56),
+ lambda c,n,f:'cradle_plate' if abs(n[1])>.48 else 'cradle_side')
 def ring_material(c,n,face):
  r=math.hypot(c[0],c[2])
- # Real outer indicator modules extend beyond the radius of the annular ring.
- # Do not choose LED faces by face index; that gave unpredictable green triangles.
  if r>32.5:return 'indicator_green'
  if abs(n[1])>max(abs(n[0]),abs(n[2])):return 'ring_light_gray'
  return 'ring_edge_gray'
