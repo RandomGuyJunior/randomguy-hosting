@@ -381,7 +381,7 @@ end
 function script.AimFromWeapon3() return gauss2Yaw end
 function script.QueryWeapon3() return gauss2Muzzle end
 function script.AimWeapon3(heading, pitch)
-	return AimGauss(gauss2Yaw, gauss2Pitch, SIG_GAUSS_2, math.rad(120), heading, pitch)
+	return AimGauss(gauss2Yaw, gauss2Pitch, SIG_GAUSS_2, math.rad(-120), heading, pitch)
 end
 function script.FireWeapon3()
 	StartThread(GaussRecoil, gauss2Barrel, gauss2Muzzle)
@@ -390,7 +390,7 @@ end
 function script.AimFromWeapon4() return gauss3Yaw end
 function script.QueryWeapon4() return gauss3Muzzle end
 function script.AimWeapon4(heading, pitch)
-	return AimGauss(gauss3Yaw, gauss3Pitch, SIG_GAUSS_3, math.rad(-120), heading, pitch)
+	return AimGauss(gauss3Yaw, gauss3Pitch, SIG_GAUSS_3, math.rad(120), heading, pitch)
 end
 function script.FireWeapon4()
 	StartThread(GaussRecoil, gauss3Barrel, gauss3Muzzle)
