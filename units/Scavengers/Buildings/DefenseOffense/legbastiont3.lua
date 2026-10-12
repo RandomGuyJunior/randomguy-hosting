@@ -37,7 +37,7 @@ return {
 		sightdistance = 900,
 		yardmap = "yoooooy ooooooo ooooooo ooooooo ooooooo ooooooo yoooooy",
 		customparams = {
-			maxrange = 1375,
+			maxrange = 1300,
 			usebuildinggrounddecal = true,
 			buildinggrounddecaltype = "decals/legbastion_aoplane.dds",
 			buildinggrounddecalsizey = 13,
@@ -124,7 +124,7 @@ return {
 				noselfdamage = true,
 				predictboost = 0.3,
 				proximitypriority = 1,
-				range = 1350,
+				range = 1300,
 				reloadtime = 4,
 				rgbcolor = "1 0.48 0.04",
 				rgbcolor2 = "1.0 0.95 0.45",
