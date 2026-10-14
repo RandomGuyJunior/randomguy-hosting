@@ -61,7 +61,7 @@ if gadgetHandler:IsSyncedCode() then
 	do
 		local names = {}
 		for name, def in pairs(UnitDefNames) do
-			if def.customParams and (def.customParams.randomguy_startunit == "1" or def.customParams.randomguy_startunit == "true" or def.customParams.randomguy_startunit == true or def.customParams.randomguy_startunit == 1) then
+			if def.customParams and (def.customParams.startunit == "1" or def.customParams.startunit == "true" or def.customParams.startunit == true or def.customParams.startunit == 1) then
 				names[#names + 1] = name
 			end
 		end
