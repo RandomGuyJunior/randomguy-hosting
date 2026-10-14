@@ -55,6 +55,33 @@ if gadgetHandler:IsSyncedCode() then
 	----------------------------------------------------------------
 	local validStartUnits = {}
 
+	-- RandomGuy overlay: opt-in additional starting units via UnitDef customparams.
+	-- UnitDef names are sorted to keep the choice list deterministic.
+	local customStartUnits = {}
+	do
+		local names = {}
+		for name, def in pairs(UnitDefNames) do
+			if def.customParams and (def.customParams.randomguy_startunit == "1" or def.customParams.randomguy_startunit == "true" or def.customParams.randomguy_startunit == true or def.customParams.randomguy_startunit == 1) then
+				names[#names + 1] = name
+			end
+		end
+		table.sort(names)
+		for _, name in ipairs(names) do
+			customStartUnits[#customStartUnits + 1] = UnitDefNames[name].id
+		end
+	end
+
+	local function addCustomStartUnits(list)
+		local seen = {}
+		for _, id in ipairs(list) do seen[id] = true end
+		for _, id in ipairs(customStartUnits) do
+			if not seen[id] then
+				list[#list + 1] = id
+				seen[id] = true
+			end
+		end
+	end
+
 	local RANDOM_DUMMY = UnitDefNames.dummycom and UnitDefNames.dummycom.id
 	local SPAWN_FIXED = 0
 	local SPAWN_CHOOSE_BEFORE_GAME = 1
@@ -142,6 +169,9 @@ if gadgetHandler:IsSyncedCode() then
 					unitsCount = unitsCount + 1
 				end
 
+				addCustomStartUnits(allyStartUnits)
+				unitsCount = #allyStartUnits + 1
+
 				if unitsCount == 1 then
 				if armcomDefID then
 					allyStartUnits[1] = armcomDefID
@@ -202,6 +232,8 @@ if gadgetHandler:IsSyncedCode() then
 			if legcomDefID then
 				validStartUnits[#validStartUnits + 1] = legcomDefID
 			end
+
+			addCustomStartUnits(validStartUnits)
 
 			getValidRandom = function(allyTeamID)
 				local roll = mathRandom(#validStartUnits)
