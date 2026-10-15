@@ -20,6 +20,7 @@ A={
  'machinery':(612,1010,716,1518),# I034, gray mechanical center
  'dark':(1880,1202,2250,1498),  # I046, recessed dark panel
  'smallLight':(434,3240,472,3284), # I103, tiny green status light
+ 'greenPanel':(850,2280,944,2400),  # I075 interior, coherent green illuminated panel
  }
 def bound(v,lo,hi):return min(hi,max(lo,v))
 def uv(key,s,t):
@@ -51,7 +52,7 @@ try:
  assert len(oldring.verts)==len(ring.verts) and oldring.indices==ring.indices
  assert all(a[:6]==b[:6] for a,b in zip(oldring.verts,ring.verts))
 except Exception as exc:
- raise RuntimeError('Need V19 exact geometry to preserve visually confirmed green islands') from exc
+ raise RuntimeError('Need V19 geometry reference to validate ring topology') from exc
 newring=list(ring.verts)
 for i in range(0,len(ring.indices),3):
  idxs=ring.indices[i:i+3]
@@ -63,7 +64,7 @@ for i in range(0,len(ring.indices),3):
  segcenter=(math.floor((math.atan2(c[2],c[0])+math.pi)/(math.pi/6))+.5)*math.pi/6-math.pi
  for j,v in zip(idxs,vs):
   if kind=='indicator':
-   newring[j]=(*v[:6],oldring.verts[j][6],oldring.verts[j][7]);continue
+   newring[j]=(*v[:6],*uv('greenPanel',0.45+(v[1]/9),0.5));continue
   angle=math.atan2(v[2],v[0])
   s=.5+wrap_angle(angle,segcenter)/(math.pi/6)
   r=math.hypot(v[0],v[2])
