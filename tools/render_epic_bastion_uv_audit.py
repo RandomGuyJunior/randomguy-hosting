@@ -27,6 +27,22 @@ center,radius=bound()
 cam_data=bpy.data.cameras.new('UV audit orthographic')
 cam=bpy.data.objects.new('UV audit camera',cam_data)
 root.collection.objects.link(cam)
+# Broad studio lighting to expose bad panel colors and UV seams.
+world=root.world
+world.use_nodes=True
+bg=world.node_tree.nodes.get('Background')
+if bg:
+ bg.inputs['Color'].default_value=(.33,.33,.33,1)
+ bg.inputs['Strength'].default_value=1.0
+for index,sh in enumerate([(1.4,0.1,1.2),(-1.5,0.2,.9),(.3,-1.5,.8)]):
+ light_data=bpy.data.lights.new(f'UV audit fill {index}','AREA')
+ light_data.energy=55000
+ light_data.shape='DISK'
+ light_data.size=radius*2.2
+ light=bpy.data.objects.new(f'UV audit fill {index}',light_data)
+ root.collection.objects.link(light)
+ light.location=center+Vector(sh)*radius*1.5
+ light.rotation_euler=(center-light.location).to_track_quat('-Z','Y').to_euler()
 root.camera=cam;cam_data.type='ORTHO';cam_data.ortho_scale=radius*2.5
 def point_camera(loc):
  cam.location=loc
@@ -35,7 +51,7 @@ def point_camera(loc):
 for label,shift in [('iso',(1.4,-1.7,1.3)),('front',(0,-2.0,0.5)),('top',(0.01,-0.01,2.0))]:
  loc=center+Vector(shift)*radius*1.8
  point_camera(loc)
- root.render.filepath=str(out/f'epic_bastion_uv_audit_{label}.png')
+ root.render.filepath=str(out/f'{os.environ.get("EPIC_RENDER_LABEL_PREFIX","epic_bastion_uv_audit")}_{label}.png')
  bpy.ops.render.render(write_still=True)
  print('RENDERED_UV_AUDIT',root.render.filepath,Path(root.render.filepath).stat().st_size)
 # Detailed per-region UV report, no geometry or S3O writes.
@@ -49,6 +65,6 @@ for o in meshes:
   uv=[tuple(layer.data[li].uv) for li in poly.loop_indices]
   rows.append((o.name,poly.index,round(c.x,3),round(c.y,3),round(c.z,3),len(poly.vertices),
                ';'.join(f'{u:.6f}:{v:.6f}' for u,v in uv)))
-with (out/'epic_bastion_uv_face_audit.csv').open('w',newline='') as f:
+with (out/(os.environ.get('EPIC_RENDER_LABEL_PREFIX','epic_bastion_uv_audit')+'_faces.csv')).open('w',newline='') as f:
  writer=csv.writer(f);writer.writerow(['piece','face','x','y','z','corners','uv_coords']);writer.writerows(rows)
 print('FACE_AUDIT_ROWS',len(rows))
