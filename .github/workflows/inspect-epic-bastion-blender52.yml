@@ -5,6 +5,7 @@ on:
       - ".github/workflows/inspect-epic-bastion-blender52.yml"
       - "tools/inspect_epic_bastion_blender52.py"
       - "tools/render_epic_bastion_uv_audit.py"
+      - "tools/test_epic_bastion_s3okit_roundtrip.py"
   workflow_dispatch:
 permissions:
   contents: write
@@ -54,6 +55,7 @@ jobs:
           EPIC_BLEND: /tmp/epic_bastion_blender52_inspection.blend
           EPIC_ADDON_MODULE: s3o_kit
           EPIC_RENDER_UV_AUDIT: "1"
+          EPIC_TEST_S3O_ROUNDTRIP: "1"
         shell: bash
         run: |
           "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
@@ -84,4 +86,5 @@ jobs:
             /tmp/epic_bastion_blender52_inspection.uv_report.json
             /tmp/epic_bastion_uv_audit_*.png
             /tmp/epic_bastion_uv_face_audit.csv
+            /tmp/epic_bastion_s3okit_roundtrip_test.report.json
           retention-days: 14
