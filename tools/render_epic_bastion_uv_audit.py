@@ -2,7 +2,7 @@ import bpy, os, json, math, csv
 from pathlib import Path
 # Called after S3O Kit import, texture relinking and packing.
 out=Path(os.environ["EPIC_BLEND"]).parent
-bpy.context.scene.render.engine='BLENDER_EEVEE_NEXT'
+bpy.context.scene.render.engine='BLENDER_EEVEE'
 bpy.context.scene.render.resolution_x=1280
 bpy.context.scene.render.resolution_y=960
 bpy.context.scene.render.resolution_percentage=100
