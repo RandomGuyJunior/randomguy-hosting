@@ -58,6 +58,10 @@ jobs:
         run: |
           "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
           test -s "$EPIC_BLEND"
+          test -s /tmp/epic_bastion_uv_audit_iso.png
+          test -s /tmp/epic_bastion_uv_audit_front.png
+          test -s /tmp/epic_bastion_uv_audit_top.png
+          test -s /tmp/epic_bastion_uv_face_audit.csv
       - uses: actions/upload-artifact@v4
         if: success()
         with:
