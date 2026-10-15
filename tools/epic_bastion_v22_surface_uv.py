@@ -138,6 +138,7 @@ for n,p in pieces.items():
  if p.verts!=ov:changed.append(n)
 assert set(changed)<={'base','ring5','extension_root_1','extension_root_2','extension_root_3'}
 assert {'ring5','base'}<=set(changed)
+print('V22 DEBUG changed',changed,'stats',dict(stats))
 assert all(f'extension_root_{i}' in changed for i in (1,2,3))
 print('V22 changed pieces',changed,'stats',dict(stats))
 if '--apply' in sys.argv:
