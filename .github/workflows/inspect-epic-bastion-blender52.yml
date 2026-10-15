@@ -60,5 +60,7 @@ jobs:
         if: success()
         with:
           name: epic-bastion-blender52-inspection
-          path: /tmp/epic_bastion_blender52_inspection.blend
+          path: |
+            /tmp/epic_bastion_blender52_inspection.blend
+            /tmp/epic_bastion_blender52_inspection.uv_report.json
           retention-days: 14
