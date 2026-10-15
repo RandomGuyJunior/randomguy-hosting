@@ -29,6 +29,14 @@ assert len(meshes)>=7,"No usable S3O meshes produced"
 assert any(o.name.lower().startswith("ring5") for o in meshes),"Fifth ring not imported"
 assert any("gauss" in o.name.lower() for o in objs),"Gauss cannon hierarchy missing"
 assert any(o.data.uv_layers for o in meshes),"No UVs were imported"
+for im in bpy.data.images:
+    print("TEXTURE_IMAGE", im.name, "path", im.filepath, "packed", bool(im.packed_file))
+try:
+    bpy.ops.file.pack_all()
+    print("TEXTURES_PACKED", [(im.name, bool(im.packed_file)) for im in bpy.data.images])
+except Exception:
+    traceback.print_exc()
+    raise
 dest.parent.mkdir(parents=True,exist_ok=True)
 bpy.ops.wm.save_as_mainfile(filepath=str(dest))
 print("SAVED_BLEND",dest, dest.stat().st_size)
