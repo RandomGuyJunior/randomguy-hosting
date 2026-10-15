@@ -54,6 +54,16 @@ for label,shift in [('iso',(1.4,-1.7,1.3)),('front',(0,-2.0,0.5)),('top',(0.01,-
  root.render.filepath=str(out/f'{os.environ.get("EPIC_RENDER_LABEL_PREFIX","epic_bastion_uv_audit")}_{label}.png')
  bpy.ops.render.render(write_still=True)
  print('RENDERED_UV_AUDIT',root.render.filepath,Path(root.render.filepath).stat().st_size)
+# Close view of the fifth ring: essential to judge small panel/LED UV islands.
+ring_obj=bpy.data.objects.get('ring5')
+assert ring_obj is not None
+ring_center=ring_obj.matrix_world.translation.copy()
+cam_data.ortho_scale=78
+cam.location=ring_center+Vector((78,-85,70))
+cam.rotation_euler=(ring_center-cam.location).to_track_quat('-Z','Y').to_euler()
+root.render.filepath=str(out/f'{os.environ.get("EPIC_RENDER_LABEL_PREFIX","epic_bastion_uv_audit")}_ringclose.png')
+bpy.ops.render.render(write_still=True)
+print('RENDERED_RING_CLOSE',root.render.filepath,Path(root.render.filepath).stat().st_size)
 # Detailed per-region UV report, no geometry or S3O writes.
 rows=[]
 for o in meshes:
