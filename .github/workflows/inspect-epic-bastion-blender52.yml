@@ -55,6 +55,7 @@ jobs:
         shell: bash
         run: |
           "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
+          test -s "$EPIC_BLEND"
       - uses: actions/upload-artifact@v4
         if: success()
         with:
