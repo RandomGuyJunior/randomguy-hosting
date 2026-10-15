@@ -89,3 +89,12 @@ if os.environ.get("EPIC_RENDER_UV_AUDIT") == "1":
 if os.environ.get('EPIC_TEST_S3O_ROUNDTRIP')=='1':
     import runpy
     runpy.run_path('tools/test_epic_bastion_s3okit_roundtrip.py',run_name='__main__')
+
+if os.environ.get('EPIC_AUTHOR_RING_CANDIDATE') == '1':
+    import runpy
+    runpy.run_path('tools/author_epic_bastion_ring5_uv_blender.py',run_name='__main__')
+    os.environ['EPIC_RENDER_LABEL_PREFIX']='epic_bastion_ring_candidate'
+    runpy.run_path('tools/render_epic_bastion_uv_audit.py',run_name='__main__')
+    candidate=dest.with_name('epic_bastion_ring5_uv_candidate.blend')
+    bpy.ops.wm.save_as_mainfile(filepath=str(candidate))
+    print('SAVED_RING5_CANDIDATE_BLEND',candidate,candidate.stat().st_size)
