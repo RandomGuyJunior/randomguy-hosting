@@ -4,6 +4,7 @@ on:
     paths:
       - ".github/workflows/inspect-epic-bastion-blender52.yml"
       - "tools/inspect_epic_bastion_blender52.py"
+      - "tools/render_epic_bastion_uv_audit.py"
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,6 +53,7 @@ jobs:
           EPIC_TEXTURES: /tmp/legion_unittextures
           EPIC_BLEND: /tmp/epic_bastion_blender52_inspection.blend
           EPIC_ADDON_MODULE: s3o_kit
+          EPIC_RENDER_UV_AUDIT: "1"
         shell: bash
         run: |
           "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
@@ -63,4 +65,6 @@ jobs:
           path: |
             /tmp/epic_bastion_blender52_inspection.blend
             /tmp/epic_bastion_blender52_inspection.uv_report.json
+            /tmp/epic_bastion_uv_audit_*.png
+            /tmp/epic_bastion_uv_face_audit.csv
           retention-days: 14
