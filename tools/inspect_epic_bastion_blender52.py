@@ -1,4 +1,5 @@
 import bpy, sys, os, traceback
+sys.path.insert(0, '/tmp/python_addons')
 from pathlib import Path
 
 s3o=Path(os.environ["EPIC_S3O"]).resolve()
