@@ -1,0 +1,22 @@
+name: Deploy Epic Bastion V22 UV
+on:
+  push:
+    paths:
+      - .github/workflows/epic-bastion-v22-uv.yml
+      - tools/epic_bastion_v22_surface_uv.py
+permissions:
+  contents: write
+jobs:
+  remap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate surface groups, V19 LEDs and geometry invariants
+        run: python3 tools/epic_bastion_v22_surface_uv.py
+      - name: Apply V22 UVs to original S3O only
+        run: |
+          python3 tools/epic_bastion_v22_surface_uv.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V22 surface-group Legion UV repair" && git push)
