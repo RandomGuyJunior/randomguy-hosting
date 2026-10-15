@@ -1,4 +1,5 @@
 name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
+# V22 indicator material review
 on:
   push:
     paths:
