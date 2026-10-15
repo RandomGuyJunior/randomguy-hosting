@@ -139,7 +139,11 @@ for n,p in pieces.items():
 assert set(changed)<={'base','ring5','extension_root_1','extension_root_2','extension_root_3'}
 assert {'ring5','base'}<=set(changed)
 print('V22 DEBUG changed',changed,'stats',dict(stats))
-assert all(f'extension_root_{i}' in changed for i in (1,2,3))
+for i in (1,2,3):
+ mount=pieces[f'extension_root_{i}']
+ if not mount.indices:
+  print('MOUNT_NO_FACES',mount.name,'verts',len(mount.verts),'- cannot UV-map invisible faces')
+ else: assert mount.name in changed,mount.name
 print('V22 changed pieces',changed,'stats',dict(stats))
 if '--apply' in sys.argv:
  save(model,str(F))
