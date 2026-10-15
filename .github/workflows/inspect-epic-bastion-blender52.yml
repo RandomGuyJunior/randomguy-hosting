@@ -7,7 +7,7 @@ on:
       - "tools/render_epic_bastion_uv_audit.py"
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   blender-inspect:
     runs-on: ubuntu-latest
@@ -62,6 +62,19 @@ jobs:
           test -s /tmp/epic_bastion_uv_audit_front.png
           test -s /tmp/epic_bastion_uv_audit_top.png
           test -s /tmp/epic_bastion_uv_face_audit.csv
+      - name: Publish visual UV audit snapshots on separate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C epic-uv-audit
+          mkdir -p uv-audit
+          cp /tmp/epic_bastion_uv_audit_*.png uv-audit/
+          cp /tmp/epic_bastion_uv_face_audit.csv uv-audit/
+          git add uv-audit/
+          git commit -m "Blender 5.2 textured Epic Bastion UV audit snapshots"
+          git push origin HEAD:refs/heads/epic-uv-audit --force
       - uses: actions/upload-artifact@v4
         if: success()
         with:
