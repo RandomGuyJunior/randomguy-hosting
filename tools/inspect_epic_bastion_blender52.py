@@ -81,3 +81,7 @@ except Exception:
 dest.parent.mkdir(parents=True,exist_ok=True)
 bpy.ops.wm.save_as_mainfile(filepath=str(dest))
 print("SAVED_BLEND",dest, dest.stat().st_size)
+
+if os.environ.get("EPIC_RENDER_UV_AUDIT") == "1":
+    import runpy
+    runpy.run_path("tools/render_epic_bastion_uv_audit.py",run_name="__main__")
