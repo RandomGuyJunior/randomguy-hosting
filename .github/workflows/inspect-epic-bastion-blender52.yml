@@ -1,0 +1,63 @@
+name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-epic-bastion-blender52.yml"
+      - "tools/inspect_epic_bastion_blender52.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  blender-inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Blender 5.2.2 and S3O Kit 0.3.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 --retry-delay 3 "https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz" -o /tmp/blender.tar.xz
+          mkdir -p /tmp/blender_dist
+          tar -xf /tmp/blender.tar.xz -C /tmp/blender_dist
+          echo "BLENDER_BIN=$(find /tmp/blender_dist -type f -name blender | head -1)" >> "$GITHUB_ENV"
+          curl -fLsS --retry 3 --retry-delay 3 "https://github.com/ChrisFloofyKitsune/s3o-blender-tools/releases/download/v0.3.2/s3o_kit_v0_3_2.zip" -o /tmp/s3o-kit.zip
+          mkdir -p /tmp/addon_extract
+          unzip -q /tmp/s3o-kit.zip -d /tmp/addon_extract
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          roots=[]
+          for p in Path('/tmp/addon_extract').rglob('__init__.py'):
+              if 'S3O Kit' in p.read_text(errors='ignore') and 'bl_info' in p.read_text(errors='ignore'):
+                  roots.append(p.parent)
+          assert len(roots)==1,f'Unexpected addon root(s): {roots}'
+          target=Path('/tmp/python_addons/s3o_kit')
+          shutil.copytree(roots[0],target)
+          print('S3O KIT INSTALLED',target)
+          print('ADDON FILES',len(list(target.rglob('*'))))
+          PY
+          echo "PYTHONPATH=/tmp/python_addons" >> "$GITHUB_ENV"
+      - name: Get original Legion texture files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/legion_unittextures
+          curl -fLsS --retry 3 "https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/unittextures/leg_color.dds" -o /tmp/legion_unittextures/leg_color.dds
+          curl -fLsS --retry 3 "https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/unittextures/leg_shader.dds" -o /tmp/legion_unittextures/leg_shader.dds
+          ls -lh /tmp/legion_unittextures
+      - name: Import Epic Bastion and save UV inspection blend
+        env:
+          EPIC_S3O: objects3d/Units/legbastiont3.s3o
+          EPIC_TEXTURES: /tmp/legion_unittextures
+          EPIC_BLEND: /tmp/epic_bastion_blender52_inspection.blend
+          EPIC_ADDON_MODULE: s3o_kit
+        shell: bash
+        run: |
+          "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: epic-bastion-blender52-inspection
+          path: /tmp/epic_bastion_blender52_inspection.blend
+          retention-days: 14
