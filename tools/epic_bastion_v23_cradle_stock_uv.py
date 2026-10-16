@@ -29,7 +29,7 @@ for face in range(nt):
 groups=collections.defaultdict(list)
 for i in range(nt):groups[find(i)].append(i)
 def limits(faces):
- v=[base.verts[j] for t in faces for j in base.indices[3*t:3*t+3]]
+ v=[base.verts[j] for t in faces for j in origindex[3*t:3*t+3]]
  ys=[x[1] for x in v];rs=[math.hypot(x[0],x[2]) for x in v]
  return (min(ys),max(ys),min(rs),max(rs))
 # Outer ring is the standalone 384-triangle annulus ~Y174..177 R35..42.
