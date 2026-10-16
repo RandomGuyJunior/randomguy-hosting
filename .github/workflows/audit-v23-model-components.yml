@@ -1,0 +1,14 @@
+name: Audit V23 Model Components
+on:
+  push:
+    paths:
+      - .github/workflows/audit-v23-model-components.yml
+      - tools/audit_v23_components.py
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/audit_v23_components.py
