@@ -9,7 +9,7 @@ from build_epic_bastion_model import load,save,walk
 F=Path('objects3d/Units/legbastiont3.s3o')
 m=load(str(F));ps={p.name:p for p in walk(m.root)}
 before={n:(p.verts[:],p.indices[:],p.offset) for n,p in ps.items()}
-url='https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/objects3d/Units/legbastion.s3o'
+url='https://raw.githubusercontent.com/RandomGuyJunior/randomguy-hosting/681351216bc87bb80ed44433ab769d46a05c4605/objects3d/Units/legbastiont3.s3o'
 stockfile=Path('/tmp/legbastion_stock_reference.s3o')
 stockfile.write_bytes(urllib.request.urlopen(url,timeout=60).read())
 stock=load(str(stockfile))
@@ -19,7 +19,7 @@ base=ps['base']
 def key(v):return tuple(round(x,4) for x in v[:6])
 uvs=collections.defaultdict(set)
 for p in walk(stock.root):
- if p.name not in {'base','turret','ring','ring2','ring3','ring4'}:continue
+ if p.name!='base':continue
  for v in p.verts:uvs[key(v)].add((round(v[6],7),round(v[7],7)))
 stats=collections.Counter()
 restored=[]
