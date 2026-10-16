@@ -1,0 +1,22 @@
+name: Epic Bastion V24 outer cradle ring
+on:
+  push:
+    paths:
+      - .github/workflows/epic-bastion-v24.yml
+      - tools/epic_bastion_v24_remove_outer_cradle_ring.py
+permissions:
+  contents: write
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm outer cradle ring identity and preserve weapon pivots
+        run: python3 tools/epic_bastion_v24_remove_outer_cradle_ring.py
+      - name: Commit only ring geometry removal
+        run: |
+          python3 tools/epic_bastion_v24_remove_outer_cradle_ring.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V24 remove outermost cradle ring only" && git push)
