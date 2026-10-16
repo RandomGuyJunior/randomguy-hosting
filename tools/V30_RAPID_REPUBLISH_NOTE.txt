@@ -1,0 +1,5 @@
+V30 Rapid publication synchronization
+
+The model commit 248bb6ae7 was created after rapid packaging started for d6af04cb0.
+This text-only commit triggers a fresh Rapid build containing the already committed V30 model.
+No model, scripts, or gameplay files are changed by this publication trigger.
