@@ -1,0 +1,22 @@
+name: Epic Bastion V26 Mount & Cradle
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-bastion-v26.yml"
+      - "tools/epic_bastion_v26_mount_cradle.py"
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate V26 protected geometry and closed support beams
+        run: python3 tools/epic_bastion_v26_mount_cradle.py
+      - name: Commit corrected model
+        run: |
+          python3 tools/epic_bastion_v26_mount_cradle.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "V26 bridge floating cradle and clean cannon mount armor UV" && git push)
