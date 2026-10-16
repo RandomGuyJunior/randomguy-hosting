@@ -79,7 +79,7 @@ def add_quad(verts,idx,a,b,c,d,rect):
  # Planar UV across a single closed face, with inset margins.
  k=len(verts)
  for pt,st in zip((a,b,c,d),((.26,.26),(.74,.26),(.74,.74),(.26,.74))):
-  verts.append((*pt,(0.,1.,0.),*uv(rect,*st)))
+  verts.append((*pt,0.,1.,0.,*uv(rect,*st)))
  idx.extend((k,k+1,k+2,k,k+2,k+3))
 def v3(rad,y,angle,width,side):
  # oriented tangent width around spoke; local Y-up as BAR S3O
