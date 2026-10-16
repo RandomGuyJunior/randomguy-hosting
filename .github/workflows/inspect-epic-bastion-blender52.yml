@@ -1,5 +1,5 @@
 name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
-# V23 committed model: verify ring deletion, top arm cleanup and UV restoration
+# V26 committed model: verify visually the connected cradle and unified cannon support mapping
 on:
   push:
     paths:
