@@ -1,0 +1,15 @@
+name: Diagnose Epic UV Geometry Components
+on:
+  push:
+    paths:
+      - ".github/workflows/diagnose-epic-uv-components.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory visible geometry components
+        run: python3 tools/audit_epic_connected_parts_v23.py
