@@ -1,0 +1,15 @@
+name: Diagnose Epic Vertical Armor Components
+on:
+  push:
+    paths:
+      - .github/workflows/diagnose-epic-vertical-plates.yml
+      - tools/inspect_epic_vertical_plate_components.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/inspect_epic_vertical_plate_components.py
