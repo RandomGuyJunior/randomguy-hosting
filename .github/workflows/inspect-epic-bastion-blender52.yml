@@ -1,5 +1,5 @@
 name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
-# V23 reduced cradle and mount material review
+# V23 committed model: verify ring deletion, top arm cleanup and UV restoration
 on:
   push:
     paths:
