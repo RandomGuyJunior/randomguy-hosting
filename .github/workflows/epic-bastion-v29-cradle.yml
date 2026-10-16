@@ -1,0 +1,23 @@
+name: Epic Bastion V29 Mounted Cradle
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-bastion-v29-cradle.yml"
+      - "tools/epic_bastion_v29_sleek_cradle_mounts.py"
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate cannon preservation and connected mounts
+        run: python3 tools/epic_bastion_v29_sleek_cradle_mounts.py
+      - name: Apply and commit V29 model to main
+        run: |
+          set -euo pipefail
+          python3 tools/epic_bastion_v29_sleek_cradle_mounts.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V29 mounted cradle and cannon support texture cleanup" && git push)
