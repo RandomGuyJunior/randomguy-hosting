@@ -1,0 +1,13 @@
+name: Audit Epic Bastion V23 Geometry
+on:
+  push:
+    paths:
+      - tools/audit_epic_connected_parts_v23.py
+      - .github/workflows/audit-epic-v23.yml
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/audit_epic_connected_parts_v23.py
