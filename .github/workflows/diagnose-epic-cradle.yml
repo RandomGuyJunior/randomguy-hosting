@@ -1,0 +1,14 @@
+name: Diagnose Epic Cradle Geometry
+on:
+  push:
+    paths:
+      - tools/diagnose_epic_base_components.py
+      - .github/workflows/diagnose-epic-cradle.yml
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/diagnose_epic_base_components.py
