@@ -200,9 +200,8 @@ function widget:Update(dt)
 
 	for unitID, state in pairs(tracked) do
 		local firing = spGetUnitRulesParam(unitID, "epic_bastion_firing") or 0
-		-- Minor passive ring distortion is always present; firing replaces it
-		-- with the stronger point distortion and adds the beam distortion.
-		local desired = (firing > 0) and 2 or 1
+		-- No passive refraction: point/beam heat distortion only while firing.
+		local desired = (firing > 0) and 2 or 0
 
 		if desired ~= state.mode or (desired > 0 and not state.pointAdded) then
 			ApplyMode(unitID, state, desired)
