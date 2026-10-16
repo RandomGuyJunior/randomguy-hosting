@@ -1,0 +1,25 @@
+name: Deploy Epic V25 Blender-Reviewed UV Candidate
+on:
+  push:
+    paths:
+      - ".github/workflows/deploy-epic-v25-reviewed.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate validated Blender-reviewed candidate
+        run: |
+          set -euo pipefail
+          python3 tools/epic_bastion_v25_visual_candidate.py /tmp/epic_v25_candidate.s3o
+          test -s /tmp/epic_v25_candidate.s3o
+          cp /tmp/epic_v25_candidate.s3o objects3d/Units/legbastiont3.s3o
+      - name: Commit UV model (no cannon/script/weapon changes)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "V25 restore V19 cannon UV, correct mounts and remove oversized cradle collars" && git push)
