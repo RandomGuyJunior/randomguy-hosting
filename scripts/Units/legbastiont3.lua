@@ -69,10 +69,10 @@ local targetSwap = false
 local rings = {
 	-- Outermost ring tumbles through the center like the other gimballed rings
 	-- instead of spinning flat around its own normal.
-	{ piece = ring, axis = x_axis, idle = 660, firing = 1040 },
-	{ piece = ring2, axis = x_axis, idle = 500, firing = 780 },
-	{ piece = ring3, axis = x_axis, idle = 380, firing = 600 },
-	{ piece = ring4, axis = z_axis, idle = 220, firing = 380 },
+	{ piece = ring, axis = x_axis, speed = 1040 },
+	{ piece = ring2, axis = x_axis, speed = 780 },
+	{ piece = ring3, axis = x_axis, speed = 600 },
+	{ piece = ring4, axis = z_axis, speed = 380 },
 }
 
 local function SetVisualParam(name, value)
@@ -90,11 +90,11 @@ local function SetFiringState(value)
 	SetVisualParam("epic_bastion_firing", value and 1 or 0)
 end
 
-local function SpinRings(firingMode)
+local function SpinRings()
 	local accel = math.rad(600)
 	for i = 1, #rings do
 		local data = rings[i]
-		local target = firingMode and data.firing or data.idle
+		local target = data.speed
 		Spin(data.piece, data.axis, math.rad(target), accel)
 	end
 end
@@ -133,8 +133,8 @@ local function DeployRings()
 	SetSignalMask(SIG_RING)
 	deploying = true
 
-	-- Full idle rotation begins immediately; no staged acceleration.
-	SpinRings(false)
+	-- One maximum ring rotation speed, regardless of firing state.
+	SpinRings()
 	Move(ringAnchor, y_axis, RING_RISE, RING_RISE_SPEED)
 	WaitForMove(ringAnchor, y_axis)
 
@@ -176,7 +176,7 @@ local function ClearFiring(serial)
 	SetFiringState(false)
 	targetSwap = false
 	if deployed then
-		SpinRings(false)
+		SpinRings()
 	end
 end
 
@@ -361,7 +361,7 @@ function script.FireWeapon1()
 
 	fireSerial = fireSerial + 1
 	SetFiringState(true)
-	SpinRings(true)
+	SpinRings()
 	StartThread(ClearFiring, fireSerial)
 end
 
