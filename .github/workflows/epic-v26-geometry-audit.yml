@@ -1,0 +1,12 @@
+name: Audit V26 Geometry
+on:
+  push:
+    paths: [".github/workflows/epic-v26-geometry-audit.yml"]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/audit_epic_connected_parts_v23.py
