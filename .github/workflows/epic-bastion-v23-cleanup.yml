@@ -1,0 +1,22 @@
+name: Epic Bastion V23 Precise Cleanup
+on:
+  push:
+    paths:
+      - .github/workflows/epic-bastion-v23-cleanup.yml
+      - tools/epic_bastion_v23_geometry_and_uv.py
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify selected ring and arm geometry and donor UVs
+        run: python3 tools/epic_bastion_v23_geometry_and_uv.py
+      - name: Commit validated S3O
+        run: |
+          python3 tools/epic_bastion_v23_geometry_and_uv.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "V23 trim outer cradle and arm remnants, restore cannon and inner UVs" && git push)
