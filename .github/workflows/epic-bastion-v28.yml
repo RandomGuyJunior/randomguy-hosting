@@ -1,0 +1,22 @@
+name: Epic Bastion V28 Cradle Center
+on:
+  push:
+    paths:
+      - .github/workflows/epic-bastion-v28.yml
+      - tools/epic_bastion_v28_cradle_and_center.py
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exact central geometry and cradle
+        run: python3 tools/epic_bastion_v28_cradle_and_center.py
+      - name: Apply model revision
+        run: |
+          python3 tools/epic_bastion_v28_cradle_and_center.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V28 narrow cradle and restore center structure UVs" && git push)
