@@ -2,9 +2,9 @@ return {
 	passive = {
 		point = {
 			radius = 58,
-			effectStrength = 0.42,
+			effectStrength = 0.14,
 			startRadius = 0.52,
-			noiseStrength = 5.0,
+			noiseStrength = 1.6667,
 			noiseScaleSpace = 0.09,
 			distanceFalloff = 0.85,
 			rampUp = 10,
@@ -14,9 +14,9 @@ return {
 	firing = {
 		point = {
 			radius = 84,
-			effectStrength = 1.25,
+			effectStrength = 0.4167,
 			startRadius = 0.34,
-			noiseStrength = 17.0,
+			noiseStrength = 5.6667,
 			noiseScaleSpace = 0.04,
 			distanceFalloff = 0.56,
 			rampUp = 1,
@@ -25,9 +25,9 @@ return {
 		beam = {
 			radius = 24,
 			length = 1380,
-			effectStrength = 2.2,
+			effectStrength = 0.7333,
 			startRadius = 0.24,
-			noiseStrength = 3.2,
+			noiseStrength = 1.0667,
 			noiseScaleSpace = 0.03,
 			distanceFalloff = 0.58,
 			riseRate = 0.24,
