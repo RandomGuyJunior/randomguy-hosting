@@ -1,0 +1,69 @@
+name: Epic V25 Visual Candidate
+on:
+  push:
+    paths:
+      - ".github/workflows/epic-v25-visual-candidate.yml"
+      - "tools/epic_bastion_v25_visual_candidate.py"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build protected S3O candidate (not live model)
+        run: python3 tools/epic_bastion_v25_visual_candidate.py /tmp/epic_v25_candidate.s3o
+      - name: Fetch Blender 5.2 and S3O Kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 "https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz" -o /tmp/blender.tar.xz
+          mkdir -p /tmp/blender_dist
+          tar -xf /tmp/blender.tar.xz -C /tmp/blender_dist
+          echo "BLENDER_BIN=$(find /tmp/blender_dist -type f -name blender | head -1)" >> "$GITHUB_ENV"
+          curl -fLsS --retry 3 "https://github.com/ChrisFloofyKitsune/s3o-blender-tools/releases/download/v0.3.2/s3o_kit_v0_3_2.zip" -o /tmp/s3o-kit.zip
+          mkdir -p /tmp/addon_extract
+          unzip -q /tmp/s3o-kit.zip -d /tmp/addon_extract
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          roots=[p.parent for p in Path('/tmp/addon_extract').rglob('__init__.py') if 'S3O Kit' in p.read_text(errors='ignore') and 'bl_info' in p.read_text(errors='ignore')]
+          assert len(roots)==1,roots
+          shutil.copytree(roots[0],Path('/tmp/python_addons/s3o_kit'))
+          PY
+      - name: Download original Legion atlas textures
+        shell: bash
+        run: |
+          mkdir -p /tmp/legion_unittextures
+          curl -fLsS --retry 3 "https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/unittextures/leg_color.dds" -o /tmp/legion_unittextures/leg_color.dds
+          curl -fLsS --retry 3 "https://raw.githubusercontent.com/beyond-all-reason/Beyond-All-Reason/master/unittextures/leg_shader.dds" -o /tmp/legion_unittextures/leg_shader.dds
+      - name: Render actual V25 S3O in Blender
+        env:
+          EPIC_S3O: /tmp/epic_v25_candidate.s3o
+          EPIC_TEXTURES: /tmp/legion_unittextures
+          EPIC_BLEND: /tmp/epic_v25_candidate.blend
+          EPIC_RENDER_UV_AUDIT: "1"
+        run: |
+          "$BLENDER_BIN" --background --factory-startup --python tools/inspect_epic_bastion_blender52.py
+          test -s /tmp/epic_bastion_uv_audit_iso.png
+          test -s /tmp/epic_bastion_uv_audit_ringclose.png
+      - name: Publish candidate-only images to QA branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C epic-v25-qa
+          mkdir -p uv-audit/v25
+          cp /tmp/epic_bastion_uv_audit_*.png uv-audit/v25/
+          git add uv-audit/v25
+          git commit -m "V25 actual S3O candidate Blender QA render"
+          git push origin HEAD:refs/heads/epic-v25-qa --force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epic-v25-s3o-and-blender-qa
+          path: |
+            /tmp/epic_v25_candidate.s3o
+            /tmp/epic_v25_candidate.blend
+            /tmp/epic_bastion_uv_audit_*.png
+          retention-days: 14
