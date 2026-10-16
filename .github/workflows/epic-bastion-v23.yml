@@ -1,0 +1,22 @@
+name: Epic Bastion V23 stock UV and mounts
+on:
+  push:
+    paths:
+      - .github/workflows/epic-bastion-v23.yml
+      - tools/epic_bastion_v23_stock_core_and_mount_uv.py
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate exact original Bastion UV matches and mesh invariants
+        run: python3 tools/epic_bastion_v23_stock_core_and_mount_uv.py
+      - name: Apply and commit V23 S3O texture repair
+        run: |
+          python3 tools/epic_bastion_v23_stock_core_and_mount_uv.py --apply
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add objects3d/Units/legbastiont3.s3o
+          git diff --cached --quiet || (git commit -m "Epic Bastion V23 use original Legion core UVs and bronze cannon housings" && git push)
