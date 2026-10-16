@@ -1,5 +1,5 @@
 name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
-# V26 committed model: verify visually the connected cradle and unified cannon support mapping
+# V27 committed model: review flat support annulus and light-gray rear armor
 on:
   push:
     paths:
