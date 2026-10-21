@@ -1,5 +1,5 @@
 name: Inspect Epic Bastion in Blender 5.2 with S3O Kit
-# V27 committed model: review flat support annulus and light-gray rear armor
+# V30 current model: produce Discord-sharing views of the actual committed S3O
 on:
   push:
     paths:
